@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "cgvae"
+version = "0.1.0"
+description = ""
+authors = ["Chunhui Gu <fduguchunhui@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.26.4"
+torch = "^2.2.0"
+torch-geometric = "^2.4.0"
+torch-scatter = "^2.1.2"
+torch-sparse = "^0.6.18"
+overrides = "^7.7.0"
+tqdm = "^4.66.2"
+pyro-ppl = "^1.8.6"
+pathlib = "^1.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
