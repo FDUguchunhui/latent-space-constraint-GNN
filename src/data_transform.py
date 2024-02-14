@@ -61,7 +61,7 @@ class MaskAdjacencyMatrix(BaseTransform):
         #
         neg_edge_index = pyg.utils.negative_sampling(
             pos_edges_observed_out,
-            num_neg_samples=self.neg_edge_ratio * pos_edges_observed_out.size(1))
+            num_neg_samples=int(self.neg_edge_ratio * out_adj_mat.size(1)))
         # the output is pyg.data.Data object but with additional attributes "neg_edge_index"
         out = Data(data.x, edge_index=out_edge_index, edge_weight=out_edge_weight,
                    neg_edge_index=neg_edge_index)

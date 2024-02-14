@@ -17,7 +17,7 @@ from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch_geometric as pyg
 
-from src.utils import ResidualAdd
+from utils import MaskedReconstructionLoss
 
 EPS = 1e-15
 MAX_LOGSTD = 10
@@ -59,35 +59,6 @@ class BaselineNet(pyg.nn.GAE):
         return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
 
 
-# todo:
-class MaskedReconstructionLoss(torch.nn.Module):
-    def __init__(self, negative_sampling_ratio: float=1.0):
-        super().__init__()
-        self.negative_sampling_ratio = negative_sampling_ratio
-
-    def forward(self, input: Tensor, target: pyg.data.Data, *args, **kwargs) -> Tensor:
-        # target is the torch_geometric.data.Data object
-        # input and target['edge_index'] are both adjacency matrices with complimentary masked region
-        # the input of baseline model is already an adjacency matrix with continuous values [0, 1]
-        # only need to convert the target to an adjacency matrix
-
-        pos_edge_index = target['edge_index']
-        num_pos_edge = pos_edge_index.size(1)
-        neg_edge_index = negative_sampling(pos_edge_index,
-                                           num_nodes=target.num_nodes,
-                                           num_neg_samples=self.negative_sampling_ratio * num_pos_edge)
-        num_neg_edge = neg_edge_index.size(1)
-
-        loss_edge_index = torch.cat((pos_edge_index, neg_edge_index), dim=-1)
-        loss_target = torch.cat((torch.ones(num_pos_edge, dtype=torch.float, device=input.device),
-                                 torch.zeros(num_neg_edge, dtype=torch.float, device=input.device)),
-                                dim=-1)
-        # use BCEWITHLOGITSLOSS to avoid numerical instability
-        # Todo: assuming the adjacency matrix of input and target are the same in terms of node order (row and col)
-        #   is it safe?
-        loss = F.binary_cross_entropy_with_logits(input[loss_edge_index[0], loss_edge_index[1]], loss_target).mean()
-        return loss
-
 
 def train(device, dataloader, num_node_features, learning_rate, num_epochs, model_path):
     '''
@@ -98,7 +69,7 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, mode
     baseline_net.to(device)
     optimizer = torch.optim.Adam(baseline_net.parameters(), lr=learning_rate)
     # negative sampling ratio is important for sparse adjacency matrix
-    criterion = MaskedReconstructionLoss(negative_sampling_ratio=1)
+    criterion = MaskedReconstructionLoss()
     best_loss = np.inf
     early_stop_count = 0
 

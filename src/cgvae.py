@@ -17,8 +17,11 @@ from torch_geometric.nn import GCNConv, InnerProductDecoder
 from tqdm import tqdm
 from data_transform import get_data
 from src.baseline import BaselineNet
+from utils import MaskedReconstructionLoss
 
 MASK_VALUE = 0
+EPS = 1e-15
+MAX_LOGSTD = 10
 
 class Encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
@@ -27,7 +30,7 @@ class Encoder(torch.nn.Module):
         self.conv_mu = GCNConv(hidden_size, latent_size)
         self.conv_logstd = GCNConv(hidden_size, latent_size)
 
-    def forward(self, masked_x: pyg.data.Data, masked_y: Tensor):
+    def forward(self, masked_x: pyg.data.Data, masked_y):
         # put x and y together in the same adjacency matrix for simplification
         # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
         # y is the target masked graph (the complement of x)
@@ -79,6 +82,32 @@ class CGVAE(torch.nn.Module):
         self.prior_net = Encoder(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder(sigmoid=False)
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
+
+    def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
+        if self.training:
+            return mu + torch.randn_like(logstd) * torch.exp(logstd)
+        else:
+            return mu
+
+    def forward(self, masked_x: pyg.data.Data, masked_y: Tensor):
+
+        # get prior
+        with torch.no_grad():
+            y_hat = self.baseline_net(masked_x) # y_hat is initial predicted adjacency matrix
+        self.prior_mu, self.prior_logstd = self.prior_net(masked_x, y_hat)
+
+        # get posterior
+        mask_y_adj_mat = pyg.utils.to_dense_adj(masked_y.edge_index, max_num_nodes=masked_y.num_nodes).squeeze()
+        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, mask_y_adj_mat)
+        z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
+        return z
+
+    def kl_divergence(self) -> Tensor:
+        kl = -0.5 * torch.mean(
+            torch.sum(1 + 2 * (self.posterior_logstd - self.prior_logstd)
+                      - (self.posterior_mu - self.prior_mu)**2
+                      - (self.posterior_logstd.exp()**2/self.prior_logstd.exp()**2), dim=1))
+        return kl
 
     def model(self, xs: pyg.data.Data, ys: pyg.data.Data):
         # register PyTorch module `decoder` with Pyro
@@ -150,52 +179,25 @@ class CGVAE(torch.nn.Module):
 # todo: implement loss calculation
 def train(device, dataloader, learning_rate, num_epochs, pre_trained_baseline_net):
 
-    # clear param store
-    pyro.clear_param_store()
-
     # todo: in_channels is hard-coded here need to fix to use difference dataset
     cgvae_net = CGVAE(1433, 50, 50, pre_trained_baseline_net)
     cgvae_net.to(device)
-    optimizer = pyro.optim.Adam({"lr": learning_rate})
-    svi = SVI(cgvae_net.model, cgvae_net.guide, optimizer, loss=Trace_ELBO())
-
-    best_loss = np.inf
-
-    samples = []
-    losses = []
-
+    optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
+    reconstruction_loss = MaskedReconstructionLoss()
     for epoch in range(num_epochs):
-        # Each epoch has a training and validation phase
-        running_loss = 0.0
-
-        # Iterate over data.
         bar = tqdm(dataloader,
                    desc='CVAE Epoch {}'.format(epoch).ljust(20))
         for i, batch in enumerate(bar):
             inputs = batch['input'].to(device)
             outputs = batch['output'].to(device)
 
-            loss = svi.step(inputs, outputs)
+            optimizer.zero_grad()
+            cgvae_net.train()
 
-            # statistics
-            running_loss += loss
-            if i % 10 == 0:
-                bar.set_postfix(loss='{:.2f}'.format(loss))
-
-            df = pd.DataFrame(columns=['epoch', 'loss'])
-            # df.loc[0] = [epoch + float(i), loss]
-            losses.append(df)
-
-        epoch_loss = running_loss
-
-    # # Save model weights
-    # cgvae_net.load(model_path)
-    #
-    # # record evolution
-    # samples = pd.concat(samples, axis=0, ignore_index=True)
-    # samples.to_csv('samples.csv', index=False)
-    #
-    # losses = pd.concat(losses, axis=0, ignore_index=True)
-    # losses.to_csv('losses.csv', index=False)
-
-    return cgvae_net
+            z = cgvae_net(inputs, outputs)
+            recon_loss = reconstruction_loss(cgvae_net.generation_net(z), outputs)
+            kl_loss = cgvae_net.kl_divergence()
+            loss = recon_loss + (1 / inputs.num_nodes) * kl_loss
+            loss.backward()
+            optimizer.step()
+            bar.set_postfix(loss='{:.2f}'.format(loss))
