@@ -30,8 +30,11 @@ class BaselineNet(pyg.nn.GAE):
         # use two layers of GCNConv to encode the graph nodes
         encoder = pyg.nn.Sequential('x, edge_index, edge_weight', [
             (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index, edge_weight -> x1'),
-            (torch.nn.Linear(num_node_features, hidden_size), 'x -> x'),
-            (ResidualAdd(), 'x1, x -> x1'),
+            # (torch.nn.Linear(num_node_features, hidden_size), 'x -> x'),
+            # (ResidualAdd(), 'x1, x -> x1'),
+            (torch.nn.ReLU(), 'x1 -> x1'),
+            # another layer of GCNConv
+            (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index, edge_weight -> x1'),
             (torch.nn.ReLU(), 'x1 -> x1'),
             (GCNConv(in_channels=hidden_size, out_channels=latent_size),'x1, edge_index, edge_weight -> x1')
         ])
@@ -94,6 +97,7 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, mode
     baseline_net = BaselineNet(num_node_features=num_node_features, hidden_size=32, latent_size=32)
     baseline_net.to(device)
     optimizer = torch.optim.Adam(baseline_net.parameters(), lr=learning_rate)
+    # negative sampling ratio is important for sparse adjacency matrix
     criterion = MaskedReconstructionLoss(negative_sampling_ratio=1)
     best_loss = np.inf
     early_stop_count = 0

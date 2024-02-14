@@ -14,7 +14,6 @@ import torch
 import torch_geometric as pyg
 from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder
-from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 from data_transform import get_data
 from src.baseline import BaselineNet
@@ -34,6 +33,8 @@ class Encoder(torch.nn.Module):
         # y is the target masked graph (the complement of x)
 
         # extract edge_index and edge_weight from masked_y only in the observed region
+        # todo: for predicted observed region in y, it is not safe to use the edge_index and edge_weight
+        #    since it tend to assign non-zero edge_weight to non-existent edges. Need to fix this.
         dim = masked_x.num_nodes
         masked_y[:, dim // 2:] = MASK_VALUE
         # mask quadrant 3
@@ -105,13 +106,11 @@ class CGVAE(torch.nn.Module):
             if ys is not None:
                 # In training, we will only sample in the masked graph
                 generated_pos_edge_prob = generated_adj[ys.edge_index[0], ys.edge_index[1]]
-                # todo: I use negative sampling to sample the negative edges, but I need to make sure
+                # todo: !!!I use negative sampling to sample the negative edges, but I need to make sure
                 #  the negative egdes are the same each time I sample
-                neg_edge_index = negative_sampling(ys.edge_index, num_nodes=ys.num_nodes,
-                                                   num_neg_samples=ys.num_edges)
-                generated_neg_edge_prob = generated_adj[neg_edge_index[0], neg_edge_index[1]]
+                generated_neg_edge_prob = generated_adj[ys.neg_edge_index[0], ys.neg_edge_index[1]]
                 generated_edge_prob = torch.cat((generated_pos_edge_prob, generated_neg_edge_prob))
-                observed_ys = torch.cat((torch.ones(ys.num_edges), torch.zeros(neg_edge_index.size(1))))
+                observed_ys = torch.cat((torch.ones(ys.num_edges), torch.zeros(ys.neg_edge_index.size(1))))
                 pyro.sample('y', dist.Bernoulli(generated_edge_prob, validate_args=False).to_event(1),
                             obs=observed_ys)
             # else:
