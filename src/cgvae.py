@@ -103,10 +103,13 @@ class CGVAE(torch.nn.Module):
         return z
 
     def kl_divergence(self) -> Tensor:
+        posterior_variance = self.posterior_logstd.exp()**2
+        prior_variance = self.prior_logstd.exp()**2
+
         kl = -0.5 * torch.mean(
             torch.sum(1 + 2 * (self.posterior_logstd - self.prior_logstd)
-                      - (self.posterior_mu - self.prior_mu)**2
-                      - (self.posterior_logstd.exp()**2/self.prior_logstd.exp()**2), dim=1))
+                      - (self.posterior_mu - self.prior_mu)**2 * (torch.reciprocal(prior_variance))
+                      - (posterior_variance/prior_variance), dim=1))
         return kl
 
     def model(self, xs: pyg.data.Data, ys: pyg.data.Data):
