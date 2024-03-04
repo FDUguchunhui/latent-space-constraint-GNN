@@ -11,6 +11,8 @@ from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.data import Data
 from torch_geometric.datasets import KarateClub
 from torch_geometric.datasets import Planetoid, PPI
+from torch_geometric.datasets import GNNBenchmarkDataset
+from torch_geometric.datasets import MNISTSuperpixels
 from torch_geometric.transforms import BaseTransform, ToUndirected
 from torch_geometric.data.datapipes import functional_transform
 from torch_geometric.loader import DataLoader
@@ -23,8 +25,9 @@ class MaskAdjacencyMatrix(BaseTransform):
     This transformation masks the adjacency matrix of torch_geometric dataset.
     '''
 
-    def __init__(self, neg_edge_ratio=1.0):
+    def __init__(self, neg_edge_ratio=1.0, ratio=0.5):
         super().__init__()
+        self.ratio = ratio
         self.neg_edge_ratio = neg_edge_ratio
 
     @overrides
@@ -44,10 +47,13 @@ class MaskAdjacencyMatrix(BaseTransform):
         #   the adjacency matrix is symmetric and the image is not necessarily symmetric. Current implementation only
         #   masks the bottom-right quadrant of the adjacency matrix. But it should support more masking options later.
         #   nor 1 (existent)
-        # mask quadrant 1 & 2
-        out_adj_mat[:, dim // 2:] = MASK_VALUE
-        # mask quadrant 3
-        out_adj_mat[dim // 2:, : dim // 2] = MASK_VALUE
+        # [ 1 ][ 0 ]
+        # ----------
+        # [ 0 ][ 0 ]
+        # mask quadrant top-right & bottom-right
+        out_adj_mat[:, int(dim * self.ratio):] = MASK_VALUE
+        # mask quadrant bottom-left
+        out_adj_mat[int(dim * self.ratio):, : int(dim * self.ratio)] = MASK_VALUE
         out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(out_adj_mat)
 
         # sample negative edges only from the observed (non-masked) region
@@ -55,8 +61,8 @@ class MaskAdjacencyMatrix(BaseTransform):
         # with the masked region set to 1 and use the negative_sampling function to sample negative edges
         # there may be better way to do this
         temp_adj_mat = adj_mat.clone()
-        temp_adj_mat[:, dim // 2:] = 1
-        temp_adj_mat[dim // 2:, : dim // 2] = 1
+        temp_adj_mat[:, int(dim * self.ratio):] = 1
+        temp_adj_mat[int(dim * self.ratio):, : int(dim * self.ratio)] = 1
         pos_edges_observed_out, _ = pyg.utils.dense_to_sparse(temp_adj_mat)
         #
         neg_edge_index = pyg.utils.negative_sampling(
@@ -67,8 +73,11 @@ class MaskAdjacencyMatrix(BaseTransform):
                    neg_edge_index=neg_edge_index)
         # for input only mask the bottom-right quadrant
         inp_adj_mat = adj_mat.clone()
-        # mask quadrant 4
-        inp_adj_mat[dim // 2:, dim // 2:] = MASK_VALUE
+        # mask quadrant top-left
+        # [ 0 ][ 1 ]
+        # ----------
+        # [ 1 ][ 1 ]
+        inp_adj_mat[:int(dim * self.ratio), :int(dim * self.ratio)] = MASK_VALUE
         inp_edge_index, inp_edge_weight = pyg.utils.dense_to_sparse(inp_adj_mat)
         inp = Data(data.x, edge_index=inp_edge_index, edge_weight=inp_edge_weight)
         sample = {'input': inp, 'output': out}
@@ -86,12 +95,20 @@ class pre_transform(BaseTransform):
     def forward(self, data: Any) -> Any:
         return self.mask_adjacency_matrix(self.to_undirected(data))
 
-def get_data():
+def get_data(root='.', dataset_name:str = None, neg_edge_ratio=1.0, ratio=0.5):
+    mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio, ratio=ratio)
     # load data
-    dataset = Planetoid(root='.', name='Cora', pre_transform=ToUndirected(),
-                        transform=MaskAdjacencyMatrix())
-    # dataset = KarateClub(transform=MaskAdjacencyMatrix())
-    # dataset = PPI(root='./PPI', split='train', transform=MaskAdjacencyMatrix())
+    if dataset_name == 'Cora':
+        dataset = Planetoid(root=root, name='Cora', pre_transform=ToUndirected(),
+                            transform=mask_adjacency_matrix)
+    if dataset_name == 'KarateClub':
+        dataset = KarateClub(transform=mask_adjacency_matrix)
+    if dataset_name == 'PPI':
+        dataset = PPI(root=root, split='train', transform=mask_adjacency_matrix)
+    # lets try graph-transformed MNIST dataset since the original condition paper also use this dataset
+    if dataset_name == 'MNISTSuperpixels':
+        dataset = MNISTSuperpixels(root=root, transform=mask_adjacency_matrix)
+
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
     dataset_sizes = len(dataset)
     return dataloader, dataset_sizes

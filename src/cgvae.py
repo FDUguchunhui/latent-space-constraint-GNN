@@ -102,6 +102,12 @@ class CGVAE(torch.nn.Module):
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
+    def generate(self) -> Tensor:
+        with torch.no_grad():
+            # sample from the conditional posterior
+            z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
+            return self.generation_net(z)
+
     def kl_divergence(self) -> Tensor:
         posterior_variance = self.posterior_logstd.exp()**2
         prior_variance = self.prior_logstd.exp()**2
@@ -112,78 +118,12 @@ class CGVAE(torch.nn.Module):
                       - (posterior_variance/prior_variance), dim=1))
         return kl
 
-    def model(self, xs: pyg.data.Data, ys: pyg.data.Data):
-        # register PyTorch module `decoder` with Pyro
-        pyro.module("generation_net", self)
-        with pyro.plate("data"):
-            # Prior network uses the baseline predictions as initial guess.
-            # This is the generative process with recurrent connection
-            with torch.no_grad():
-                y_hat = self.baseline_net(xs) # y_hat is initial predicted adjacency matrix
-
-            # simulate the latent variable z from the prior distribution, which is
-            # modeled by the input xs (the initial guess y_hat is also a function of xs)
-
-            prior_mu, prior_logstd = self.prior_net(xs, y_hat)
-            # for each node in the graph, sample a latent code z from the prior distribution
-            zs = torch.empty(xs.num_nodes, self.latent_size)
-            for i in range(xs.num_nodes):
-                zs[i] = pyro.sample("z_{}".format(i), dist.Normal(prior_mu[i], torch.exp(prior_logstd[i])).to_event(1))
-
-            # the output y is generated from the distribution pθ(y|x, z)
-            # generated_adj is generated adjacency matrix with continuous values [0, 1] cells representing
-            # the probability of the edge being present
-            generated_adj = self.generation_net(zs)
-
-            if ys is not None:
-                # In training, we will only sample in the masked graph
-                generated_pos_edge_prob = generated_adj[ys.edge_index[0], ys.edge_index[1]]
-                # todo: !!!I use negative sampling to sample the negative edges, but I need to make sure
-                #  the negative egdes are the same each time I sample
-                generated_neg_edge_prob = generated_adj[ys.neg_edge_index[0], ys.neg_edge_index[1]]
-                generated_edge_prob = torch.cat((generated_pos_edge_prob, generated_neg_edge_prob))
-                observed_ys = torch.cat((torch.ones(ys.num_edges), torch.zeros(ys.neg_edge_index.size(1))))
-                pyro.sample('y', dist.Bernoulli(generated_edge_prob, validate_args=False).to_event(1),
-                            obs=observed_ys)
-            # else:
-            #     # In testing, no need to sample: the output is already a
-            #     # probability in [0, 1] range, which better represent pixel
-            #     # values considering grayscale. If we sample, we will force
-            #     # each pixel to be  either 0 or 1, killing the grayscale
-            #     pyro.deterministic('y', loc.detach())
-
-            # return the loc so we can visualize it later
-            return generated_adj
-
-    # todo: need to decoder part since it doesn't have learnable parameters
-    #   then prior and posterior are the same
-    def guide(self, xs: pyg.data.Data, ys: pyg.data.Data = None):
-        with pyro.plate("data"):
-            if ys is None:
-                # at inference time, ys is not provided. In that case,
-                # the model uses the prior network
-                y_hat = self.baseline_net() # y_hat is initial predicted adjacency matrix
-                z_mu, z_logstd = self.prior_net(xs, y_hat)
-            else:
-                # at training time, uses the variational distribution
-                # q(z|x,y) = normal(loc(x,y),scale(x,y))
-
-                # make into adjacency matrix
-                ys_adj_mat = pyg.utils.to_dense_adj(ys.edge_index, max_num_nodes=ys.num_nodes, edge_attr=ys.edge_weight)
-                z_mu, z_logstd = self.recognition_net(xs, ys_adj_mat)
-
-            zs = torch.empty(xs.num_nodes, self.latent_size)
-            for i in range(xs.num_nodes):
-                # todo: make sure pyro can handle those type of sample for each node
-                zs[i] = pyro.sample("z_{}".format(i), dist.Normal(z_mu[i], torch.exp(z_logstd[i])).to_event(1))
-
-
-
 # todo: implement loss calculation
-def train(device, dataloader, learning_rate, num_epochs, pre_trained_baseline_net):
+def train(device, dataloader, num_node_features, learning_rate, num_epochs, pre_trained_baseline_net):
 
     # todo: in_channels is hard-coded here need to fix to use difference dataset
-    cgvae_net = CGVAE(1433, 50, 50, pre_trained_baseline_net)
+    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=50,
+                      latent_size=50, pre_treained_baseline_net=pre_trained_baseline_net)
     cgvae_net.to(device)
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     reconstruction_loss = MaskedReconstructionLoss()
@@ -204,3 +144,5 @@ def train(device, dataloader, learning_rate, num_epochs, pre_trained_baseline_ne
             loss.backward()
             optimizer.step()
             bar.set_postfix(loss='{:.4f}'.format(loss))
+
+    return cgvae_net
