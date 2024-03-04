@@ -73,6 +73,8 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, mode
     best_loss = np.inf
     early_stop_count = 0
 
+    # todo: add early stopping
+
     for epoch in range(num_epochs):
         baseline_net.train()
         running_loss = 0.0
@@ -98,7 +100,8 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, mode
         epoch_loss = running_loss # the magnitude of the loss decided by number of edges [node^2]
         bar.set_postfix(loss='{:.4f}'.format(epoch_loss))
 
-        Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-        # torch.save(baseline_net.state_dict(), model_path)
+    # save the final model
+    Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+    torch.save(baseline_net.state_dict(), model_path)
 
     return baseline_net

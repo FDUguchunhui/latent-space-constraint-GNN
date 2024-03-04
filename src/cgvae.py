@@ -118,8 +118,23 @@ class CGVAE(torch.nn.Module):
                       - (posterior_variance/prior_variance), dim=1))
         return kl
 
+    def save(self, model_path):
+        torch.save({'prior': self.prior_net.state_dict(),
+                    'generation': self.generation_net.state_dict(),
+                    'recognition': self.recognition_net.state_dict()}, model_path)
+
+    def load(self, model_path, map_location=None):
+        net_weights = torch.load(model_path, map_location=map_location)
+        self.prior_net.load_state_dict(net_weights['prior'])
+        self.generation_net.load_state_dict(net_weights['generation'])
+        self.recognition_net.load_state_dict(net_weights['recognition'])
+        self.prior_net.eval()
+        self.generation_net.eval()
+        self.recognition_net.eval()
+
 # todo: implement loss calculation
-def train(device, dataloader, num_node_features, learning_rate, num_epochs, pre_trained_baseline_net):
+def train(device, dataloader, num_node_features, learning_rate, num_epochs, pre_trained_baseline_net,
+          model_path):
 
     # todo: in_channels is hard-coded here need to fix to use difference dataset
     cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=50,
@@ -144,5 +159,9 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, pre_
             loss.backward()
             optimizer.step()
             bar.set_postfix(loss='{:.4f}'.format(loss))
+
+    # save the model
+    Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+    cgvae_net.save(model_path)
 
     return cgvae_net
