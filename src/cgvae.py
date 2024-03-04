@@ -203,4 +203,4 @@ def train(device, dataloader, learning_rate, num_epochs, pre_trained_baseline_ne
             loss = recon_loss + (1 / inputs.num_nodes) * kl_loss
             loss.backward()
             optimizer.step()
-            bar.set_postfix(loss='{:.2f}'.format(loss))
+            bar.set_postfix(loss='{:.4f}'.format(loss))

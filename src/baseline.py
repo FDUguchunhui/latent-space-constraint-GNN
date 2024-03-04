@@ -93,10 +93,10 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, mode
             running_loss += loss.item()
             num_preds += 1
             if i % 10 == 0:
-                bar.set_postfix(loss='{:.2f}'.format(running_loss / num_preds))
+                bar.set_postfix(loss='{:.4f}'.format(running_loss / num_preds))
 
         epoch_loss = running_loss # the magnitude of the loss decided by number of edges [node^2]
-        print(f'Loss: {epoch_loss:.4f}')
+        bar.set_postfix(loss='{:.4f}'.format(epoch_loss))
 
         Path(model_path).parent.mkdir(parents=True, exist_ok=True)
         # torch.save(baseline_net.state_dict(), model_path)
