@@ -15,8 +15,8 @@ import torch_geometric as pyg
 from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder
 from tqdm import tqdm
-from data_transform import get_data
-from src.baseline import BaselineNet
+from src.data_transform import get_data
+from baseline import BaselineNet
 from utils import MaskedReconstructionLoss
 
 MASK_VALUE = 0

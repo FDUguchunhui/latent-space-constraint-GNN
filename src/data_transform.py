@@ -95,6 +95,30 @@ class pre_transform(BaseTransform):
     def forward(self, data: Any) -> Any:
         return self.mask_adjacency_matrix(self.to_undirected(data))
 
+
+#  Random remove edges from the target graph
+# todo:
+class RandomRemoveEdges(BaseTransform):
+    def __init__(self, ratio=0.5):
+        super().__init__()
+        self.ratio = ratio
+
+    def forward(self, data: Any) -> Any:
+        adj_mat = pyg.utils.to_dense_adj(data.edge_index).squeeze()
+        out_adj_mat = adj_mat.clone()  # create a masked version of the adjacency matrix
+        dim, _ = adj_mat.shape  # get num of nodes
+
+        # create a masked version of the adjacency matrix `adj` for input and output
+        # the index `adj` is divided into 4 quadrants. All quadrants except the bottom-right are used as input and
+        # the bottom-right quadrant is used as output.
+        # For `adj`, when the value is masked, it is set to 0 to avoid information aggregation through masked edges.
+        # It was tried to set it as 0.5 to denote the that the edge is neither 0 (non-existent) but the result is not
+        # as expected.
+        MASK_VALUE = 0
+
+
+
+
 def get_data(root='.', dataset_name:str = None, neg_edge_ratio=1.0, ratio=0.5):
     mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio, ratio=ratio)
     # load data
