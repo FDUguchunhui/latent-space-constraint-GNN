@@ -17,6 +17,7 @@ from torch_geometric.transforms import BaseTransform, ToUndirected
 from torch_geometric.data.datapipes import functional_transform
 from torch_geometric.loader import DataLoader
 import torch
+import numpy as np
 
 
 # @functional_transform('mask_adjacency_matrix')
@@ -96,6 +97,25 @@ class pre_transform(BaseTransform):
         return self.mask_adjacency_matrix(self.to_undirected(data))
 
 
+class PermuteNode(BaseTransform):
+    def __init__(self, seed=0):
+        super().__init__()
+        np.random.seed(seed)
+
+    def forward(self, data: Any) -> Any:
+        dim = data.x.size(0)
+        perm = np.eye(dim, dtype=int)
+        np.random.shuffle(perm)
+        data.x = data.x[np.where(perm == 1)[1], :]
+        # permute the edge_index
+        perm = torch.tensor(perm, dtype=torch.float)
+        adj_mat = pyg.utils.to_dense_adj(data.edge_index)
+        adj_mat = perm @ adj_mat @ perm.T
+        adj_mat = adj_mat.squeeze(0)
+        edge_index, edge_weight = pyg.utils.dense_to_sparse(adj_mat)
+        data.edge_index = edge_index
+        return data
+
 #  Random remove edges from the target graph
 # todo:
 class RandomRemoveEdges(BaseTransform):
@@ -107,6 +127,7 @@ class RandomRemoveEdges(BaseTransform):
         adj_mat = pyg.utils.to_dense_adj(data.edge_index).squeeze()
         out_adj_mat = adj_mat.clone()  # create a masked version of the adjacency matrix
         dim, _ = adj_mat.shape  # get num of nodes
+        raise NotImplementedError("This function is still under development.")
 
         # create a masked version of the adjacency matrix `adj` for input and output
         # the index `adj` is divided into 4 quadrants. All quadrants except the bottom-right are used as input and
@@ -119,16 +140,29 @@ class RandomRemoveEdges(BaseTransform):
 
 
 
-def get_data(root='.', dataset_name:str = None, neg_edge_ratio=1.0, ratio=0.5):
+def get_data(root='.', dataset_name:str = None, neg_edge_ratio=1.0, ratio=0.5, random_seed=None):
     mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio, ratio=ratio)
+    pre_transforms = [ToUndirected()]
+    if random_seed is not None:
+        permute_node = PermuteNode(seed=random_seed)
+        pre_transforms.append(permute_node)
+
+    # defne a function that will iterate the input over the list of pre_transforms
+    def pre_transform_function(data):
+        for transform in pre_transforms:
+            data = transform(data)
+        return data
+
     # load data
     if dataset_name == 'Cora':
-        dataset = Planetoid(root=root, name='Cora', pre_transform=ToUndirected(),
+        dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transform_function,
                             transform=mask_adjacency_matrix)
     if dataset_name == 'KarateClub':
-        dataset = KarateClub(transform=mask_adjacency_matrix)
+        dataset = KarateClub(transform=mask_adjacency_matrix,
+                             pre_transform=pre_transform_function)
     if dataset_name == 'PPI':
-        dataset = PPI(root=root, split='train', transform=mask_adjacency_matrix)
+        dataset = PPI(root=root, split='train', transform=mask_adjacency_matrix,
+                      pre_transform=pre_transform_function)
     # lets try graph-transformed MNIST dataset since the original condition paper also use this dataset
     if dataset_name == 'MNISTSuperpixels':
         dataset = MNISTSuperpixels(root=root, transform=mask_adjacency_matrix)
