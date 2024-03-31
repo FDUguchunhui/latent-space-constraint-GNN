@@ -17,7 +17,7 @@ from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch_geometric as pyg
 
-from utils import MaskedReconstructionLoss
+from cgvae.utils import MaskedReconstructionLoss
 
 EPS = 1e-15
 MAX_LOGSTD = 10
