@@ -3,6 +3,7 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/10/24
 """
+import copy
 from pathlib import Path
 from typing import Optional
 
@@ -60,7 +61,8 @@ class BaselineNet(pyg.nn.GAE):
 
 
 
-def train(device, dataloader, num_node_features, learning_rate, num_epochs, model_path):
+def train(device, dataloader, num_node_features, model_path, learning_rate=10e-3,
+          num_epochs=100, early_stop_patience=10):
     '''
     The purpose of this function is to train the baseline model for the CGVAE.
     '''
@@ -73,32 +75,46 @@ def train(device, dataloader, num_node_features, learning_rate, num_epochs, mode
     best_loss = np.inf
     early_stop_count = 0
 
-    # todo: add early stopping
 
     for epoch in range(num_epochs):
-        baseline_net.train()
-        running_loss = 0.0
-        num_preds = 0
 
-        bar = tqdm(dataloader, desc='NN Epoch {}'.format(epoch).ljust(20))
-        for i, batch in enumerate(bar):
-            inputs = batch['input'].to(device)
-            outputs = batch['output'].to(device)
+        for phase in ['train', 'val']:
+            if phase == 'train':
+                baseline_net.train()
+            else:
+                baseline_net.eval()
 
-            optimizer.zero_grad()
+            bar = tqdm(dataloader, desc='NN Epoch {}'.format(epoch).ljust(20))
+            for i, batch in enumerate(bar):
+                inputs = batch['input'].to(device)
+                outputs = batch['output'].to(device)
 
-            preds = baseline_net(inputs)
-            loss = criterion(preds, outputs)
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad()
 
-            running_loss += loss.item()
-            num_preds += 1
-            if i % 10 == 0:
-                bar.set_postfix(loss='{:.4f}'.format(running_loss / num_preds))
+                with torch.set_grad_enabled(phase == 'train'):
+                    preds = baseline_net(inputs)
+                    loss = criterion(preds, outputs, mask=f'{phase}_mask')
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
 
-        epoch_loss = running_loss # the magnitude of the loss decided by number of edges [node^2]
-        bar.set_postfix(loss='{:.4f}'.format(epoch_loss))
+                epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
+                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
+                                early_stop_count=early_stop_count)
+
+                if phase == 'val':
+                    if epoch_loss < best_loss:
+                        best_loss = epoch_loss
+                        best_model_wts = copy.deepcopy(baseline_net.state_dict())
+                        early_stop_count = 0
+                    else:
+                        early_stop_count += 1
+
+        if early_stop_count >= early_stop_patience:
+            break
+
+    baseline_net.load_state_dict(best_model_wts)
+    baseline_net.eval()
 
     # save the final model
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)

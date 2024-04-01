@@ -3,6 +3,7 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/11/24
 """
+import copy
 
 import numpy as np
 import pandas as pd
@@ -84,10 +85,10 @@ class CGVAE(torch.nn.Module):
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
 
     def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
-        if self.training:
-            return mu + torch.randn_like(logstd) * torch.exp(logstd)
-        else:
-            return mu
+        # if self.training:
+        return mu + torch.randn_like(logstd) * torch.exp(logstd)
+        # else:
+            # return mu
 
     def forward(self, masked_x: pyg.data.Data, masked_y: Tensor):
 
@@ -133,35 +134,65 @@ class CGVAE(torch.nn.Module):
         self.recognition_net.eval()
 
 # todo: implement loss calculation
-def train(device, dataloader, num_node_features, learning_rate, num_epochs, pre_trained_baseline_net,
-          model_path):
+def train(device, dataloader, num_node_features,
+          pre_trained_baseline_net,
+          model_path, learning_rate=10e-3,
+          num_epochs=100,
+          early_stop_patience=10,
+          regularization=1.0):
 
-    # todo: in_channels is hard-coded here need to fix to use difference dataset
     cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=50,
                       latent_size=50, pre_treained_baseline_net=pre_trained_baseline_net)
     cgvae_net.to(device)
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     reconstruction_loss = MaskedReconstructionLoss()
-    for epoch in range(num_epochs):
-        bar = tqdm(dataloader,
-                   desc='CVAE Epoch {}'.format(epoch).ljust(20))
-        for i, batch in enumerate(bar):
-            inputs = batch['input'].to(device)
-            outputs = batch['output'].to(device)
-
-            optimizer.zero_grad()
-            cgvae_net.train()
-
-            z = cgvae_net(inputs, outputs)
-            recon_loss = reconstruction_loss(cgvae_net.generation_net(z), outputs)
-            kl_loss = cgvae_net.kl_divergence()
-            loss = recon_loss + (1 / inputs.num_nodes) * kl_loss
-            loss.backward()
-            optimizer.step()
-            bar.set_postfix(loss='{:.4f}'.format(loss))
-
-    # save the model
+    best_loss = np.inf
+    early_stop_count = 0
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-    cgvae_net.save(model_path)
+
+    for epoch in range(num_epochs):
+
+        for phase in ['train', 'val']:
+            if phase == 'train':
+                cgvae_net.train()
+            else:
+                cgvae_net.eval()
+
+            bar = tqdm(dataloader,
+                       desc='CVAE Epoch {}'.format(epoch).ljust(20))
+
+            for i, batch in enumerate(bar):
+                inputs = batch['input'].to(device)
+                outputs = batch['output'].to(device)
+
+                optimizer.zero_grad()
+
+                with torch.set_grad_enabled(phase == 'train'):
+                    z = cgvae_net(inputs, outputs)
+                    recon_loss = reconstruction_loss(cgvae_net.generation_net(z),
+                                                     outputs, mask=f'{phase}_mask')
+                    kl_loss = cgvae_net.kl_divergence()
+                    loss = recon_loss + regularization * (1 / inputs.num_nodes) * kl_loss
+                    if phase == 'train':
+                        loss.backward()
+                        optimizer.step()
+
+                epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
+                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
+                                early_stop_count=early_stop_count)
+
+
+                if phase == 'val':
+                    if epoch_loss < best_loss:
+                        best_loss = epoch_loss
+                        cgvae_net.save(model_path)
+                        early_stop_count = 0
+                    else:
+                        early_stop_count += 1
+
+        if early_stop_count >= early_stop_patience:
+            break
+
+    cgvae_net.load(model_path)
 
     return cgvae_net

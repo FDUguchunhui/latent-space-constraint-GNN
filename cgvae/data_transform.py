@@ -13,7 +13,7 @@ from torch_geometric.datasets import KarateClub
 from torch_geometric.datasets import Planetoid, PPI
 from torch_geometric.datasets import GNNBenchmarkDataset
 from torch_geometric.datasets import MNISTSuperpixels
-from torch_geometric.transforms import BaseTransform, ToUndirected
+from torch_geometric.transforms import BaseTransform, ToUndirected, AddSelfLoops, RandomLinkSplit
 from torch_geometric.data.datapipes import functional_transform
 from torch_geometric.loader import DataLoader
 import torch
@@ -65,13 +65,8 @@ class MaskAdjacencyMatrix(BaseTransform):
         temp_adj_mat[:, int(dim * self.ratio):] = 1
         temp_adj_mat[int(dim * self.ratio):, : int(dim * self.ratio)] = 1
         pos_edges_observed_out, _ = pyg.utils.dense_to_sparse(temp_adj_mat)
-        #
-        neg_edge_index = pyg.utils.negative_sampling(
-            pos_edges_observed_out,
-            num_neg_samples=int(self.neg_edge_ratio * out_adj_mat.size(1)))
         # the output is pyg.data.Data object but with additional attributes "neg_edge_index"
-        out = Data(data.x, edge_index=out_edge_index, edge_weight=out_edge_weight,
-                   neg_edge_index=neg_edge_index)
+        out = Data(data.x, edge_index=out_edge_index, edge_weight=out_edge_weight)
         # for input only mask the bottom-right quadrant
         inp_adj_mat = adj_mat.clone()
         # mask quadrant top-left
@@ -84,23 +79,22 @@ class MaskAdjacencyMatrix(BaseTransform):
         sample = {'input': inp, 'output': out}
         return sample
 
-# currently, MaskAdjacencyMatrix is not a functional transform, so it cannot be used in pre_transform since
-# it require return a Data object while MaskAdjacencyMatrix returns a dict of two Data objects.
-# this function is not used in the current implementation
-class pre_transform(BaseTransform):
-    def __init__(self, neg_edge_ratio=1.0):
-        super().__init__()
-        self.to_undirected = ToUndirected()
-        self.mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio)
-        raise NotImplementedError("This function is still under development.")
-    def forward(self, data: Any) -> Any:
-        return self.mask_adjacency_matrix(self.to_undirected(data))
+# # currently, MaskAdjacencyMatrix is not a functional transform, so it cannot be used in pre_transform since
+# # it require return a Data object while MaskAdjacencyMatrix returns a dict of two Data objects.
+# # this function is not used in the current implementation
+# class pre_transform(BaseTransform):
+#     def __init__(self, neg_edge_ratio=1.0):
+#         super().__init__()
+#         self.to_undirected = ToUndirected()
+#         self.mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio)
+#         raise NotImplementedError("This function is still under development.")
+#     def forward(self, data: Any) -> Any:
+#         return self.mask_adjacency_matrix(self.to_undirected(data))
 
 
 class PermuteNode(BaseTransform):
     def __init__(self, seed=0):
         super().__init__()
-        np.random.seed(seed)
 
     def forward(self, data: Any) -> Any:
         dim = data.x.size(0)
@@ -116,36 +110,51 @@ class PermuteNode(BaseTransform):
         data.edge_index = edge_index
         return data
 
-#  Random remove edges from the target graph
+#  Random remove edges from the output subgraph
 # todo:
-class RandomRemoveEdges(BaseTransform):
-    def __init__(self, ratio=0.5):
+class OutputRandomEdgesSplit(BaseTransform):
+    def __init__(self, num_val=0.1,  num_test=0.2, neg_sampling_ratio=1.0):
         super().__init__()
-        self.ratio = ratio
+        self.random_link_split = RandomLinkSplit(is_undirected=True,  key='edge_label',
+                          num_val=num_val, num_test=num_test,
+                                                 neg_sampling_ratio=neg_sampling_ratio)
+
 
     def forward(self, data: Any) -> Any:
-        adj_mat = pyg.utils.to_dense_adj(data.edge_index).squeeze()
-        out_adj_mat = adj_mat.clone()  # create a masked version of the adjacency matrix
-        dim, _ = adj_mat.shape  # get num of nodes
-        raise NotImplementedError("This function is still under development.")
+        '''
+        :param data:  dictionary of "input" and " output" data returned by
+        MaskAdjacencyMatrix
+        :return: same dictionary of "input" and "output" data with output data has
+        additional edge attributes for indicate its belongs to one of
+        train,val, and test sets.
+        '''
+        output_train, output_test, output_val = self.random_link_split(data['output'])
+        # concatenate the edge_index and create corresponding train, val, and test mask
+        edge_index = torch.cat((output_train.edge_label_index, output_test.edge_label_index, output_val.edge_label_index), dim=1)
+        edge_label = torch.cat((output_train.edge_label, output_test.edge_label, output_val.edge_label), dim=0)
+        train_mask = torch.concat((torch.ones(output_train.edge_label.size(0), dtype=torch.bool),
+                                    torch.zeros(output_test.edge_label.size(0) + output_val.edge_label.size(0),
+                                                dtype=torch.bool)), dim=0)
+        val_mask = torch.concat((torch.zeros(output_train.edge_label.size(0), dtype=torch.bool),
+                                    torch.ones(output_test.edge_label.size(0), dtype=torch.bool),
+                                    torch.zeros(output_val.edge_label.size(0), dtype=torch.bool)), dim=0)
+        test_mask = torch.concat((torch.zeros(output_train.edge_label.size(0) + output_test.edge_label.size(0),
+                                                dtype=torch.bool),
+                                        torch.ones(output_val.edge_label.size(0), dtype=torch.bool)), dim=0)
+        output = Data(data['output'].x, edge_index=edge_index, edge_label=edge_label,
+                        train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
+        # convert back to undirected graph
+        output = ToUndirected()(output)
+        return {'input': data['input'], 'output': output}
 
-        # create a masked version of the adjacency matrix `adj` for input and output
-        # the index `adj` is divided into 4 quadrants. All quadrants except the bottom-right are used as input and
-        # the bottom-right quadrant is used as output.
-        # For `adj`, when the value is masked, it is set to 0 to avoid information aggregation through masked edges.
-        # It was tried to set it as 0.5 to denote the that the edge is neither 0 (non-existent) but the result is not
-        # as expected.
-        MASK_VALUE = 0
+def get_data(root='.', dataset_name:str = None,
+             mask_ratio=0.5,
+             num_val=0.1, num_test=0.2,
+             neg_edge_ratio=1.0):
 
-
-
-
-def get_data(root='.', dataset_name:str = None, neg_edge_ratio=1.0, ratio=0.5, random_seed=None):
-    mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio, ratio=ratio)
-    pre_transforms = [ToUndirected()]
-    if random_seed is not None:
-        permute_node = PermuteNode(seed=random_seed)
-        pre_transforms.append(permute_node)
+    pre_transforms = [ToUndirected(), AddSelfLoops()]
+    permute_node = PermuteNode()
+    pre_transforms.append(permute_node)
 
     # defne a function that will iterate the input over the list of pre_transforms
     def pre_transform_function(data):
@@ -153,19 +162,21 @@ def get_data(root='.', dataset_name:str = None, neg_edge_ratio=1.0, ratio=0.5, r
             data = transform(data)
         return data
 
+    mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
+    output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
+                                                      num_test=num_test, neg_sampling_ratio=neg_edge_ratio)
+    def transform_function(data):
+        return output_random_edge_split(mask_adjacency_matrix(data))
+
     # load data
     if dataset_name == 'Cora':
         dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transform_function,
-                            transform=mask_adjacency_matrix)
+                            transform=transform_function)
     if dataset_name == 'KarateClub':
-        dataset = KarateClub(transform=mask_adjacency_matrix,
-                             pre_transform=pre_transform_function)
+        dataset = KarateClub(transform=transform_function)
     if dataset_name == 'PPI':
-        dataset = PPI(root=root, split='train', transform=mask_adjacency_matrix,
+        dataset = PPI(root=root, split='train', transform=transform_function,
                       pre_transform=pre_transform_function)
-    # lets try graph-transformed MNIST dataset since the original condition paper also use this dataset
-    if dataset_name == 'MNISTSuperpixels':
-        dataset = MNISTSuperpixels(root=root, transform=mask_adjacency_matrix)
 
     dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
     dataset_sizes = len(dataset)
