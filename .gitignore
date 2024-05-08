@@ -79,3 +79,4 @@ fabric.properties
 data/*
 checkpoints/*
 documents/*
+.Rproj.user

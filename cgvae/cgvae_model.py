@@ -122,13 +122,19 @@ class CGVAE(torch.nn.Module):
     def save(self, model_path):
         torch.save({'prior': self.prior_net.state_dict(),
                     'generation': self.generation_net.state_dict(),
-                    'recognition': self.recognition_net.state_dict()}, model_path)
+                    'recognition': self.recognition_net.state_dict(),
+                    'posterior_mu': self.posterior_mu,
+                    'posterior_logstd': self.posterior_logstd,
+                    },
+                   model_path)
 
     def load(self, model_path, map_location=None):
         net_weights = torch.load(model_path, map_location=map_location)
         self.prior_net.load_state_dict(net_weights['prior'])
         self.generation_net.load_state_dict(net_weights['generation'])
         self.recognition_net.load_state_dict(net_weights['recognition'])
+        self.posterior_mu = net_weights['posterior_mu']
+        self.posterior_logstd = net_weights['posterior_logstd']
         self.prior_net.eval()
         self.generation_net.eval()
         self.recognition_net.eval()
