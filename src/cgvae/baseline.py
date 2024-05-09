@@ -5,20 +5,17 @@ Created: 2/10/24
 """
 import copy
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import torch
 from torch import Tensor
-import torch.nn.functional as F
 from overrides import overrides
 from torch_geometric.nn import GCNConv
 from torch_geometric.nn import InnerProductDecoder
-from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch_geometric as pyg
 
-from cgvae.utils import MaskedReconstructionLoss
+from src.cgvae.utils import MaskedReconstructionLoss
 
 EPS = 1e-15
 MAX_LOGSTD = 10
@@ -28,6 +25,9 @@ class BaselineNet(pyg.nn.GAE):
     The purpose of this class is to provide a baseline model for the CGVAE.
     '''
     def __init__(self, num_node_features, hidden_size, latent_size):
+        #todo: for baseline maybe try some other architectures than GCN since
+        # the predicted adjacency matrix is not clear enough to be used as input
+
         # use two layers of GCNConv to encode the graph nodes
         encoder = pyg.nn.Sequential('x, edge_index, edge_weight', [
             (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index, edge_weight -> x1'),
@@ -59,6 +59,12 @@ class BaselineNet(pyg.nn.GAE):
     def decode(self, z: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
         return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
 
+    def predict(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
+        z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
+        sigmoid_output = self.decode(z, sigmoid=False, **kwargs)
+        # make sigmoid_output as 1 if it is greater than 0.5, otherwise 0
+        return (sigmoid_output > 0.5).float()
+
 
 
 def train(device, dataloader, num_node_features, model_path, learning_rate=10e-3,
@@ -75,6 +81,7 @@ def train(device, dataloader, num_node_features, model_path, learning_rate=10e-3
     best_loss = np.inf
     early_stop_count = 0
 
+    best_model_wts = copy.deepcopy(baseline_net.state_dict())
 
     for epoch in range(num_epochs):
 
