@@ -3,22 +3,16 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/11/24
 """
-import copy
 
 import numpy as np
-import pandas as pd
 from pathlib import Path
-import pyro
-import pyro.distributions as dist
-from pyro.infer import SVI, Trace_ELBO, Predictive
 import torch
 import torch_geometric as pyg
 from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder
 from tqdm import tqdm
-from cgvae.data_transform import get_data
-from cgvae.baseline import BaselineNet
-from cgvae.utils import MaskedReconstructionLoss
+from src.cgvae.baseline import BaselineNet
+from src.cgvae.utils import MaskedReconstructionLoss
 
 MASK_VALUE = 0
 EPS = 1e-15
@@ -94,7 +88,9 @@ class CGVAE(torch.nn.Module):
 
         # get prior
         with torch.no_grad():
-            y_hat = self.baseline_net(masked_x) # y_hat is initial predicted adjacency matrix
+            #todo: check predict instead of sigmoid output
+            y_hat = self.baseline_net.predict(masked_x) # y_hat is initial predicted adjacency matrix
+            #todo: baseline is too noise, maybe try use indirect link directly
         self.prior_mu, self.prior_logstd = self.prior_net(masked_x, y_hat)
 
         # get posterior
@@ -115,7 +111,7 @@ class CGVAE(torch.nn.Module):
 
         kl = -0.5 * torch.mean(
             torch.sum(1 + 2 * (self.posterior_logstd - self.prior_logstd)
-                      - (self.posterior_mu - self.prior_mu)**2 * (torch.reciprocal(prior_variance))
+                      - ((self.posterior_mu - self.prior_mu)**2) * (torch.reciprocal(prior_variance))
                       - (posterior_variance/prior_variance), dim=1))
         return kl
 
