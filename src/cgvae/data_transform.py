@@ -128,7 +128,7 @@ class OutputRandomEdgesSplit(BaseTransform):
         additional edge attributes for indicate its belongs to one of
         train,val, and test sets.
         '''
-        output_train, output_test, output_val = self.random_link_split(data['output'])
+        output_train, output_val,  output_test  = self.random_link_split(data['output'])
         # concatenate the edge_index and create corresponding train, val, and test mask
         edge_index = torch.cat((output_train.edge_label_index, output_test.edge_label_index, output_val.edge_label_index), dim=1)
         edge_label = torch.cat((output_train.edge_label, output_test.edge_label, output_val.edge_label), dim=0)

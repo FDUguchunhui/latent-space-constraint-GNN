@@ -8,6 +8,7 @@ import numpy as np
 from pathlib import Path
 import torch
 import torch_geometric as pyg
+from sklearn.metrics import roc_auc_score
 from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder
 from tqdm import tqdm
@@ -135,10 +136,10 @@ class CGVAE(torch.nn.Module):
         self.generation_net.eval()
         self.recognition_net.eval()
 
-# todo: implement loss calculation
 def train(device, dataloader, num_node_features,
           pre_trained_baseline_net,
-          model_path, learning_rate=10e-3,
+          model_path,
+          learning_rate=10e-3,
           num_epochs=100,
           early_stop_patience=10,
           regularization=1.0):
@@ -198,3 +199,28 @@ def train(device, dataloader, num_node_features,
     cgvae_net.load(model_path)
 
     return cgvae_net
+
+def test( model: CGVAE, dataloader, sample=100, device='cpu'):
+    model.to(device)
+    model.eval()
+    all_auc = []
+    with torch.no_grad():
+        for batch in dataloader:
+            inputs = batch['input'].to(device)
+            outputs = batch['output'].to(device)
+            z = model(inputs, outputs)
+            # sample from the conditional posterior and calculate AUC
+            output_edges = outputs.edge_index[:, outputs['test_mask'].squeeze(-1)]
+            output_labels = outputs.edge_label[outputs['test_mask']].cpu().numpy()
+            pred_logits_list = []
+            for _ in range(sample):
+                logits = model.generation_net(z)
+                pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
+                pred_logits_list.append(pred_logits)
+                # take average of predicted logits
+            mean_pred_logits = np.mean(pred_logits, axis=0)
+            # calculate AUC for each batch for output_logits and output_labels
+            roc_auc = roc_auc_score(output_labels, pred_logits)
+            all_auc.append(roc_auc)
+
+    return np.mean(all_auc)
