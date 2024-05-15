@@ -144,7 +144,7 @@ class OutputRandomEdgesSplit(BaseTransform):
         output = Data(data['output'].x, edge_index=edge_index, edge_label=edge_label,
                         train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
         # convert back to undirected graph
-        output = ToUndirected()(output)
+        # output = ToUndirected()(output)  #todo: why toUndirected make edge label multiple by 2?
         return {'input': data['input'], 'output': output}
 
 def get_data(root='.', dataset_name:str = None,
