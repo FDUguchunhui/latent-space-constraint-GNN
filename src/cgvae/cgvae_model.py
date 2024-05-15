@@ -218,9 +218,9 @@ def test( model: CGVAE, dataloader, sample=100, device='cpu'):
                 pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
                 pred_logits_list.append(pred_logits)
                 # take average of predicted logits
-            mean_pred_logits = np.mean(pred_logits, axis=0)
+            mean_pred_logits = np.mean(pred_logits_list, axis=0)
             # calculate AUC for each batch for output_logits and output_labels
-            roc_auc = roc_auc_score(output_labels, pred_logits)
+            roc_auc = roc_auc_score(output_labels, mean_pred_logits)
             all_auc.append(roc_auc)
 
     return np.mean(all_auc)
