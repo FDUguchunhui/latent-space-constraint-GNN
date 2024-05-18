@@ -102,19 +102,6 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), model_path)
 
-
-def train():
-    model.train()
-    optimizer.zero_grad()
-    z = model.encode(train_data.x, train_data.edge_index)
-    loss = model.recon_loss(z, train_data.pos_edge_label_index)
-    if True:
-        loss = loss + (1 / train_data.num_nodes) * model.kl_loss()
-    loss.backward()
-    optimizer.step()
-    return float(loss)
-
-
 from sklearn.metrics import roc_auc_score, average_precision_score
 pyg.seed.seed_everything(123)
 

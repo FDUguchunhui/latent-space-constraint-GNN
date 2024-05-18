@@ -138,7 +138,7 @@ class CGVAE(torch.nn.Module):
         self.generation_net.eval()
         self.recognition_net.eval()
 
-def train(device, dataloader, num_node_features,
+def train(device, data, num_node_features,
           pre_trained_baseline_net,
           model_path,
           hidden_size=32,
@@ -157,6 +157,9 @@ def train(device, dataloader, num_node_features,
     early_stop_count = 0
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
+    inputs = data['input'].to(device)
+    outputs = data['output'].to(device)
+
     for epoch in range(num_epochs):
 
         for phase in ['train', 'val']:
@@ -165,15 +168,8 @@ def train(device, dataloader, num_node_features,
             else:
                 cgvae_net.eval()
 
-            bar = tqdm(dataloader,
-                       desc='CVAE Epoch {}'.format(epoch).ljust(20))
-
-            for i, batch in enumerate(bar):
-                inputs = batch['input'].to(device)
-                outputs = batch['output'].to(device)
-
+            with tqdm(total=1, desc=f'CGVAE Epoch {epoch}') as bar:
                 optimizer.zero_grad()
-
                 with torch.set_grad_enabled(phase == 'train'):
                     z = cgvae_net(inputs, outputs)
                     recon_loss = reconstruction_loss(cgvae_net.generation_net(z),
@@ -203,23 +199,22 @@ def train(device, dataloader, num_node_features,
 
     return cgvae_net
 
-def test( model: CGVAE, dataloader, device='cpu'):
+def test( model: CGVAE, data, device='cpu'):
     model.to(device)
     model.eval()
     with torch.no_grad():
-        for batch in dataloader:
-            inputs = batch['input'].to(device)
-            outputs = batch['output'].to(device)
-            z = model(inputs, outputs)
-            # sample from the conditional posterior and calculate AUC
-            output_edges = outputs.edge_index[:, outputs['test_mask'].squeeze(-1)]
-            output_labels = outputs.edge_label[outputs['test_mask']].cpu().numpy()
-            logits = model.generation_net(z)
-            pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
-            # calculate AUC for each batch for output_logits and output_labels
-            roc_auc = roc_auc_score(output_labels, pred_logits)
-            # calculate average precision
-            precision, recall, _ = precision_recall_curve(output_labels, pred_logits)
-            average_precision = average_precision_score(output_labels, pred_logits)
+        inputs = data['input'].to(device)
+        outputs = data['output'].to(device)
+        z = model(inputs, outputs)
+        # sample from the conditional posterior and calculate AUC
+        output_edges = outputs.edge_index[:, outputs['test_mask'].squeeze(-1)]
+        output_labels = outputs.edge_label[outputs['test_mask']].cpu().numpy()
+        logits = model.generation_net(z)
+        pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
+        # calculate AUC for each batch for output_logits and output_labels
+        roc_auc = roc_auc_score(output_labels, pred_logits)
+        # calculate average precision
+        precision, recall, _ = precision_recall_curve(output_labels, pred_logits)
+        average_precision = average_precision_score(output_labels, pred_logits)
 
     return roc_auc, average_precision

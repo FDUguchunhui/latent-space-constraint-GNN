@@ -42,7 +42,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
     # initalize dataloader
-    dataloader, dataset_size = cgvae.data_transform.get_data('data/', args.dataset,
+    data = cgvae.data_transform.get_data('data/', args.dataset,
                                                              mask_ratio=args.split_ratio,
                                                              num_val=args.num_val,
                                                              num_test=args.num_test,
@@ -53,8 +53,8 @@ if __name__ == '__main__':
 
     baseline_net = cgvae.baseline_train(
         device='cpu',
-        dataloader=dataloader,
-        num_node_features=next(iter(dataloader))['input'].x.size(1),
+        data=data,
+        num_node_features=data['input'].x.size(1),
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
         model_path=osp.join('checkpoints', str(args.seed), 'baseline_net.pth'),
@@ -63,8 +63,8 @@ if __name__ == '__main__':
 
     cgvae_net = cgvae.cgvae_train(
         device=args.device,
-        dataloader=dataloader,
-        num_node_features=next(iter(dataloader))['input'].x.size(1),
+        data=data,
+        num_node_features=data['input'].x.size(1),
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
         pre_trained_baseline_net=baseline_net,
@@ -76,12 +76,7 @@ if __name__ == '__main__':
     end_time = time.time()
     execution_time = end_time - time_start
 
-    dataloader, dataset_size = cgvae.get_data('data/', args.dataset,
-                                                             mask_ratio=args.split_ratio,
-                                                             num_val=args.num_val, num_test=args.num_test,
-                                                             neg_edge_ratio=args.neg_edge_ratio)
-
-    auc, ap = cgvae.cgvae_model.test(cgvae_net, dataloader)
+    auc, ap = cgvae.cgvae_model.test(cgvae_net, data)
     print(f'seed: {args.seed}, AUC: {auc}, AP: {ap}')
 
     # Create a dictionary with the data you want to save

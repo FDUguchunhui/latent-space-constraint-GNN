@@ -67,21 +67,25 @@ class BaselineNet(pyg.nn.GAE):
 
 
 
-def train(device, dataloader, num_node_features, model_path, learning_rate=10e-3,
-          num_epochs=100, early_stop_patience=10):
+def train(device, data, num_node_features, model_path, learning_rate=10e-3,
+          num_epochs=100, early_stop_patience=10, hidden_size=32, latent_size=16):
     '''
     The purpose of this function is to train the baseline model for the CGVAE.
     '''
     # Train baseline
-    baseline_net = BaselineNet(num_node_features=num_node_features, hidden_size=32, latent_size=16)
+    baseline_net = BaselineNet(num_node_features=num_node_features,
+                               hidden_size=hidden_size, latent_size=latent_size)
     baseline_net.to(device)
     optimizer = torch.optim.Adam(baseline_net.parameters(), lr=learning_rate)
     # negative sampling ratio is important for sparse adjacency matrix
     criterion = MaskedReconstructionLoss()
     best_loss = np.inf
     early_stop_count = 0
-
     best_model_wts = copy.deepcopy(baseline_net.state_dict())
+
+    # get the input and output data and move them to the device
+    inputs = data['input'].to(device)
+    outputs = data['output'].to(device)
 
     for epoch in range(num_epochs):
 
@@ -91,13 +95,8 @@ def train(device, dataloader, num_node_features, model_path, learning_rate=10e-3
             else:
                 baseline_net.eval()
 
-            bar = tqdm(dataloader, desc='NN Epoch {}'.format(epoch).ljust(20))
-            for i, batch in enumerate(bar):
-                inputs = batch['input'].to(device)
-                outputs = batch['output'].to(device)
-
+            with tqdm(total=1, desc=f'NN Epoch {epoch}') as bar:
                 optimizer.zero_grad()
-
                 with torch.set_grad_enabled(phase == 'train'):
                     preds = baseline_net(inputs)
                     loss = criterion(preds, outputs, mask=f'{phase}_mask')
