@@ -28,32 +28,17 @@ class Encoder(torch.nn.Module):
         self.conv_mu = GCNConv(hidden_size, latent_size)
         self.conv_logstd = GCNConv(hidden_size, latent_size)
 
-    def forward(self, masked_x: pyg.data.Data, masked_y):
+    def forward(self, masked_x: pyg.data.Data, masked_y_edge_index: Tensor):
         # put x and y together in the same adjacency matrix for simplification
         # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
         # y is the target masked graph (the complement of x)
 
         # extract edge_index and edge_weight from masked_y only in the observed region
-        # todo: for predicted observed region in y, it is not safe to use the edge_index and edge_weight
-        #    since it tend to assign non-zero edge_weight to non-existent edges. Need to fix this.
-        dim = masked_x.num_nodes
-        masked_y[:, dim // 2:] = MASK_VALUE
-        # mask quadrant 3
-        masked_y[dim // 2:, : dim // 2] = MASK_VALUE
-        masked_y_edge_index, masked_y_edge_weight = pyg.utils.dense_to_sparse(masked_y)
-        # the edge weight need to be transformed into probability of the edge being present from logit
-        masked_y_edge_weight = torch.sigmoid(masked_y_edge_weight)
-
         completed_edge_index = torch.cat((masked_x.edge_index, masked_y_edge_index), dim=1)
-        completed_edge_weight = torch.cat((torch.ones(masked_x.edge_index.size(1)),
-                                           masked_y_edge_weight), dim=0)
-        # then compute the hidden units
-        hidden = self.conv1(masked_x.x, completed_edge_index, completed_edge_weight)
+        hidden = self.conv1(masked_x.x, completed_edge_index)
         hidden = torch.relu(hidden)
-        # then return a mean vector and a (positive) square root covariance
-        # each of size batch_size x z_dim
-        z_mu = self.conv_mu(hidden, completed_edge_index, completed_edge_weight)
-        z_logstd = self.conv_logstd(hidden, completed_edge_index, completed_edge_weight)
+        z_mu = self.conv_mu(hidden, completed_edge_index)
+        z_logstd = self.conv_logstd(hidden, completed_edge_index)
         return z_mu, z_logstd
 
 class Decoder(torch.nn.Module):
@@ -80,6 +65,7 @@ class CGVAE(torch.nn.Module):
         self.prior_net = Encoder(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder(sigmoid=False)
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
+        self.y_hat = None
 
     def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
         if self.training:
@@ -90,15 +76,17 @@ class CGVAE(torch.nn.Module):
     def forward(self, masked_x: pyg.data.Data, masked_y: Tensor):
 
         # get prior
-        with torch.no_grad():
-            #todo: check predict instead of sigmoid output
-            y_hat = self.baseline_net.predict(masked_x) # y_hat is initial predicted adjacency matrix
+        if self.y_hat is None:
+            with torch.no_grad():
+                #todo: check predict instead of sigmoid output
+                y_hat = self.baseline_net.predict(masked_x) # y_hat is initial predicted adjacency matrix
+                self.y_hat, _ = pyg.utils.dense_to_sparse(y_hat)
             #todo: baseline is too noise, maybe try use indirect link directly
-        self.prior_mu, self.prior_logstd = self.prior_net(masked_x, y_hat)
+
+        self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.y_hat)
 
         # get posterior
-        mask_y_adj_mat = pyg.utils.to_dense_adj(masked_y.edge_index, max_num_nodes=masked_y.num_nodes).squeeze()
-        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, mask_y_adj_mat)
+        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, masked_y.edge_index)
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
@@ -141,15 +129,14 @@ class CGVAE(torch.nn.Module):
 def train(device, data, num_node_features,
           pre_trained_baseline_net,
           model_path,
-          hidden_size=32,
-          latent_size=16,
+          out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
           early_stop_patience=10,
           regularization=1.0):
 
-    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=hidden_size,
-                      latent_size=latent_size, pre_treained_baseline_net=pre_trained_baseline_net)
+    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
+                      latent_size=out_channels, pre_treained_baseline_net=pre_trained_baseline_net)
     cgvae_net.to(device)
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     reconstruction_loss = MaskedReconstructionLoss()
@@ -170,6 +157,7 @@ def train(device, data, num_node_features,
 
             with tqdm(total=1, desc=f'CGVAE Epoch {epoch}') as bar:
                 optimizer.zero_grad()
+                epoch_loss = 0
                 with torch.set_grad_enabled(phase == 'train'):
                     z = cgvae_net(inputs, outputs)
                     recon_loss = reconstruction_loss(cgvae_net.generation_net(z),
@@ -180,9 +168,10 @@ def train(device, data, num_node_features,
                         loss.backward()
                         optimizer.step()
 
-            epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
-            bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
-                            early_stop_count=early_stop_count)
+                    epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
+                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
+                                early_stop_count=early_stop_count)
+                bar.update()
 
             if phase == 'val':
                 if epoch_loss < best_loss:

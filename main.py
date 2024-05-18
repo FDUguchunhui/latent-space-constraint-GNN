@@ -21,8 +21,7 @@ if __name__ == '__main__':
     parser.add_argument('--neg_edge_ratio', type=float, default=1)
     # model train arguments
     parser.add_argument('--model_path', type=str, default='model')
-    parser.add_argument('--hidden_size', type=int, default=32)
-    parser.add_argument('--latent_size', type=int, default=16)
+    parser.add_argument('--out_channels', type=int, default=16)
     # training arguments
     parser.add_argument('--num_epochs', type=int, default=300)
     parser.add_argument('--batch_size', type=int, default=1)
