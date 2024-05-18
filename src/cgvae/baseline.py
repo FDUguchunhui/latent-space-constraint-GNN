@@ -73,7 +73,7 @@ def train(device, dataloader, num_node_features, model_path, learning_rate=10e-3
     The purpose of this function is to train the baseline model for the CGVAE.
     '''
     # Train baseline
-    baseline_net = BaselineNet(num_node_features=num_node_features, hidden_size=32, latent_size=32)
+    baseline_net = BaselineNet(num_node_features=num_node_features, hidden_size=32, latent_size=16)
     baseline_net.to(device)
     optimizer = torch.optim.Adam(baseline_net.parameters(), lr=learning_rate)
     # negative sampling ratio is important for sparse adjacency matrix

@@ -8,12 +8,14 @@ import numpy as np
 from pathlib import Path
 import torch
 import torch_geometric as pyg
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder
 from tqdm import tqdm
 from src.cgvae.baseline import BaselineNet
 from src.cgvae.utils import MaskedReconstructionLoss
+
+
 
 MASK_VALUE = 0
 EPS = 1e-15
@@ -80,10 +82,10 @@ class CGVAE(torch.nn.Module):
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
 
     def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
-        # if self.training:
-        return mu + torch.randn_like(logstd) * torch.exp(logstd)
-        # else:
-            # return mu
+        if self.training:
+            return mu + torch.randn_like(logstd) * torch.exp(logstd)
+        else:
+            return mu
 
     def forward(self, masked_x: pyg.data.Data, masked_y: Tensor):
 
@@ -144,8 +146,8 @@ def train(device, dataloader, num_node_features,
           early_stop_patience=10,
           regularization=1.0):
 
-    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=50,
-                      latent_size=50, pre_treained_baseline_net=pre_trained_baseline_net)
+    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=32,
+                      latent_size=16, pre_treained_baseline_net=pre_trained_baseline_net)
     cgvae_net.to(device)
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     reconstruction_loss = MaskedReconstructionLoss()
@@ -180,30 +182,28 @@ def train(device, dataloader, num_node_features,
                         loss.backward()
                         optimizer.step()
 
-                epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
-                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
-                                early_stop_count=early_stop_count)
+            epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
+            bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
+                            early_stop_count=early_stop_count)
 
+            if phase == 'val':
+                if epoch_loss < best_loss:
+                    best_loss = epoch_loss
+                    cgvae_net.save(model_path)
+                    early_stop_count = 0
+                else:
+                    early_stop_count += 1
 
-                if phase == 'val':
-                    if epoch_loss < best_loss:
-                        best_loss = epoch_loss
-                        cgvae_net.save(model_path)
-                        early_stop_count = 0
-                    else:
-                        early_stop_count += 1
-
-        if early_stop_count >= early_stop_patience:
-            break
+            if early_stop_count >= early_stop_patience:
+                break
 
     cgvae_net.load(model_path)
 
     return cgvae_net
 
-def test( model: CGVAE, dataloader, sample=100, device='cpu'):
+def test( model: CGVAE, dataloader, device='cpu'):
     model.to(device)
     model.eval()
-    all_auc = []
     with torch.no_grad():
         for batch in dataloader:
             inputs = batch['input'].to(device)
@@ -212,15 +212,12 @@ def test( model: CGVAE, dataloader, sample=100, device='cpu'):
             # sample from the conditional posterior and calculate AUC
             output_edges = outputs.edge_index[:, outputs['test_mask'].squeeze(-1)]
             output_labels = outputs.edge_label[outputs['test_mask']].cpu().numpy()
-            pred_logits_list = []
-            for _ in range(sample):
-                logits = model.generation_net(z)
-                pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
-                pred_logits_list.append(pred_logits)
-                # take average of predicted logits
-            mean_pred_logits = np.mean(pred_logits_list, axis=0)
+            logits = model.generation_net(z)
+            pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
             # calculate AUC for each batch for output_logits and output_labels
-            roc_auc = roc_auc_score(output_labels, mean_pred_logits)
-            all_auc.append(roc_auc)
+            roc_auc = roc_auc_score(output_labels, pred_logits)
+            # calculate average precision
+            precision, recall, _ = precision_recall_curve(output_labels, pred_logits)
+            average_precision = average_precision_score(output_labels, pred_logits)
 
-    return np.mean(all_auc)
+    return roc_auc, average_precision

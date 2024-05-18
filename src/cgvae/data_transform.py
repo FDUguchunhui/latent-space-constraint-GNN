@@ -6,6 +6,7 @@ Created: 2/10/24
 from typing import Any
 
 import torch_geometric as pyg
+import torch_geometric.seed
 from overrides import overrides
 from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.data import Data
@@ -18,7 +19,6 @@ from torch_geometric.data.datapipes import functional_transform
 from torch_geometric.loader import DataLoader
 import torch
 import numpy as np
-
 
 # @functional_transform('mask_adjacency_matrix')
 class MaskAdjacencyMatrix(BaseTransform):
@@ -120,6 +120,7 @@ class OutputRandomEdgesSplit(BaseTransform):
                                                  neg_sampling_ratio=neg_sampling_ratio)
 
 
+
     def forward(self, data: Any) -> Any:
         '''
         :param data:  dictionary of "input" and " output" data returned by
@@ -152,7 +153,7 @@ def get_data(root='.', dataset_name:str = None,
              num_val=0.1, num_test=0.2,
              neg_edge_ratio=1.0):
 
-    pre_transforms = [ToUndirected(), AddSelfLoops()]
+    pre_transforms = [ToUndirected()]
     permute_node = PermuteNode()
     pre_transforms.append(permute_node)
 
@@ -178,6 +179,8 @@ def get_data(root='.', dataset_name:str = None,
         dataset = PPI(root=root, split='train', transform=transform_function,
                       pre_transform=pre_transform_function)
 
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+    # set shuffle to False to keep the order of the dataset otherwise
+    # the split will be different for each epoch
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
     dataset_sizes = len(dataset)
     return dataloader, dataset_sizes
