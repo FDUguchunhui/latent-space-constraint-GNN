@@ -46,9 +46,9 @@ class BaselineNet(pyg.nn.GAE):
         super().__init__(encoder=encoder, decoder=decoder)
 
     @overrides
-    def forward(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
+    def forward(self, input: pyg.data.Data, output_edge_index, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
-        out = self.decode(z, sigmoid=False, **kwargs)
+        out = self.decode(z,  output_edge_index, sigmoid=False, **kwargs)
         return out # out is the entire adjacency matrix
 
     @overrides
@@ -56,12 +56,16 @@ class BaselineNet(pyg.nn.GAE):
         return self.encoder(x, edge_index, edge_weight)
 
     @overrides
-    def decode(self, z: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
-        return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
+    def decode(self, z: Tensor, edge_index: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
+        # return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
+        logits = self.decoder(z, edge_index, sigmoid=sigmoid)
+        sigmoid_output = torch.sigmoid(logits)
+        prediction = (sigmoid_output > 0.5).bool()
+        return logits, edge_index[:, prediction] # return the predicted edges (with values > 0.5)
 
     def predict(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
-        sigmoid_output = self.decode(z, sigmoid=False, **kwargs)
+        sigmoid_output = self.decoder.forward_all(z, sigmoid=False, **kwargs)
         # make sigmoid_output as 1 if it is greater than 0.5, otherwise 0
         return (sigmoid_output > 0.5).float()
 
@@ -98,7 +102,8 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
             with tqdm(total=1, desc=f'NN Epoch {epoch}') as bar:
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
-                    preds = baseline_net(inputs)
+                    # only use input to predict the output edges with train mask
+                    preds, _ = baseline_net(inputs, outputs.edge_index)
                     loss = criterion(preds, outputs, mask=f'{phase}_mask')
                     if phase == 'train':
                         loss.backward()

@@ -47,9 +47,9 @@ class Decoder(torch.nn.Module):
         self.sigmoid = sigmoid
         self.inner_prod_decoder = InnerProductDecoder()
 
-    def forward(self, z):
-        return self.inner_prod_decoder.forward_all(z, sigmoid=self.sigmoid)
-
+    def forward(self, z, edge_index: Tensor):
+        # return self.inner_prod_decoder.forward_all(z, sigmoid=self.sigmoid)
+        return self.inner_prod_decoder(z, edge_index, sigmoid=self.sigmoid)
 
 class CGVAE(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_size: int,
@@ -79,14 +79,16 @@ class CGVAE(torch.nn.Module):
         if self.y_hat is None:
             with torch.no_grad():
                 #todo: check predict instead of sigmoid output
-                y_hat = self.baseline_net.predict(masked_x) # y_hat is initial predicted adjacency matrix
-                self.y_hat, _ = pyg.utils.dense_to_sparse(y_hat)
+                y_hat, self.target_edge_index = self.baseline_net(masked_x, masked_y.edge_index) # y_hat is initial predicted adjacency matrix
+                y_hat = torch.sigmoid(y_hat)
+                # predit 0 or 1
+                self.y_hat = (y_hat > 0.5).float()
             #todo: baseline is too noise, maybe try use indirect link directly
 
-        self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.y_hat)
+        self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.target_edge_index)
 
         # get posterior
-        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, masked_y.edge_index)
+        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, self.target_edge_index)
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
@@ -160,7 +162,7 @@ def train(device, data, num_node_features,
                 epoch_loss = 0
                 with torch.set_grad_enabled(phase == 'train'):
                     z = cgvae_net(inputs, outputs)
-                    recon_loss = reconstruction_loss(cgvae_net.generation_net(z),
+                    recon_loss = reconstruction_loss(cgvae_net.generation_net(z, outputs.edge_index),
                                                      outputs, mask=f'{phase}_mask')
                     kl_loss = cgvae_net.kl_divergence()
                     loss = recon_loss + regularization * (1 / inputs.num_nodes) * kl_loss
@@ -198,8 +200,7 @@ def test( model: CGVAE, data, device='cpu'):
         # sample from the conditional posterior and calculate AUC
         output_edges = outputs.edge_index[:, outputs['test_mask'].squeeze(-1)]
         output_labels = outputs.edge_label[outputs['test_mask']].cpu().numpy()
-        logits = model.generation_net(z)
-        pred_logits = logits[output_edges[0], output_edges[1]].cpu().numpy()
+        pred_logits = model.generation_net(z, output_edges).cpu().numpy()
         # calculate AUC for each batch for output_logits and output_labels
         roc_auc = roc_auc_score(output_labels, pred_logits)
         # calculate average precision
