@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     # Define the different split_ratio and dataset choices
     # split from 0.1 to 0.9 by 0.1
-    split_ratios = [0.1, 0.2, 0.3, 0.4, 0.5]
+    split_ratios = [0.6, 0.7, 0.8, 0.9]
     datasets = ['Cora']
 
     # Iterate over the choices
