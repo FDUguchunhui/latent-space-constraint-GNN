@@ -5,7 +5,6 @@ Created: 2/10/24
 """
 import copy
 from pathlib import Path
-
 import numpy as np
 import torch
 from torch import Tensor
@@ -46,9 +45,10 @@ class BaselineNet(pyg.nn.GAE):
         super().__init__(encoder=encoder, decoder=decoder)
 
     @overrides
-    def forward(self, input: pyg.data.Data, output_edge_index, *args, **kwargs) -> Tensor:
+    def forward(self, input: pyg.data.Data, target: pyg.data.Data, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
-        out = self.decode(z,  output_edge_index, sigmoid=False, **kwargs)
+        out = self.decode(z,  target.edge_label_index, sigmoid=False, **kwargs)
+        # convert tuple of two tensors into a tensor of 2 dimension
         return out # out is the entire adjacency matrix
 
     @overrides
@@ -59,9 +59,7 @@ class BaselineNet(pyg.nn.GAE):
     def decode(self, z: Tensor, edge_index: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
         # return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
         logits = self.decoder(z, edge_index, sigmoid=sigmoid)
-        sigmoid_output = torch.sigmoid(logits)
-        prediction = (sigmoid_output > 0.5).bool()
-        return logits, edge_index[:, prediction] # return the predicted edges (with values > 0.5)
+        return logits # return the predicted edges (with values > 0.5)
 
     def predict(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
@@ -88,9 +86,11 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
     best_model_wts = copy.deepcopy(baseline_net.state_dict())
 
     # get the input and output data and move them to the device
-    inputs = data['input'].to(device)
-    outputs = data['output'].to(device)
+    input = data['input'].to(device)
+    output_train = data['output']['train'].to(device)
+    output_val = data['output']['val'].to(device)
 
+    # todo: may be should I overfitting train and val data for the baseline model?
     for epoch in range(num_epochs):
 
         for phase in ['train', 'val']:
@@ -103,8 +103,13 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     # only use input to predict the output edges with train mask
-                    preds, _ = baseline_net(inputs, outputs.edge_index)
-                    loss = criterion(preds, outputs, mask=f'{phase}_mask')
+                    if phase == 'train':
+                        edge_label_logits = baseline_net(input, output_train)
+                        loss = criterion(edge_label_logits, output_train.edge_label)
+                    else:
+                        edge_label_logits = baseline_net(input, output_val)
+                        loss = criterion(edge_label_logits, output_val.edge_label)
+
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()

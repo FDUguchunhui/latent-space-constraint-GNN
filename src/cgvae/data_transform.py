@@ -130,22 +130,7 @@ class OutputRandomEdgesSplit(BaseTransform):
         train,val, and test sets.
         '''
         output_train, output_val,  output_test  = self.random_link_split(data['output'])
-        # concatenate the edge_index and create corresponding train, val, and test mask
-        edge_index = torch.cat((output_train.edge_label_index, output_test.edge_label_index, output_val.edge_label_index), dim=1)
-        edge_label = torch.cat((output_train.edge_label, output_test.edge_label, output_val.edge_label), dim=0)
-        train_mask = torch.concat((torch.ones(output_train.edge_label.size(0), dtype=torch.bool),
-                                    torch.zeros(output_test.edge_label.size(0) + output_val.edge_label.size(0),
-                                                dtype=torch.bool)), dim=0)
-        val_mask = torch.concat((torch.zeros(output_train.edge_label.size(0), dtype=torch.bool),
-                                    torch.ones(output_test.edge_label.size(0), dtype=torch.bool),
-                                    torch.zeros(output_val.edge_label.size(0), dtype=torch.bool)), dim=0)
-        test_mask = torch.concat((torch.zeros(output_train.edge_label.size(0) + output_test.edge_label.size(0),
-                                                dtype=torch.bool),
-                                        torch.ones(output_val.edge_label.size(0), dtype=torch.bool)), dim=0)
-        output = Data(data['output'].x, edge_index=edge_index, edge_label=edge_label,
-                        train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
-        # convert back to undirected graph
-        # output = ToUndirected()(output)  #todo: why toUndirected make edge label multiple by 2?
+        output = {'train': output_train, 'val': output_val, 'test': output_test}
         return {'input': data['input'], 'output': output}
 
 def get_data(root='.', dataset_name:str = None,
