@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     # Define the different split_ratio and dataset choices
     # split from 0.1 to 0.9 by 0.1
-    datasets = ['Cora']
+    datasets = ['PubMed']
 
     # Iterate over the choices
     for dataset in datasets:

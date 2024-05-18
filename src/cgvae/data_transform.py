@@ -170,17 +170,22 @@ def get_data(root='.', dataset_name:str = None,
         return output_random_edge_split(mask_adjacency_matrix(data))
 
     # load data
+    if dataset_name == 'KarateClub':
+            dataset = KarateClub(transform=transform_function)
     if dataset_name == 'Cora':
         dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transform_function,
                             transform=transform_function)
-    if dataset_name == 'KarateClub':
-        dataset = KarateClub(transform=transform_function)
-    if dataset_name == 'PPI':
-        dataset = PPI(root=root, split='train', transform=transform_function,
-                      pre_transform=pre_transform_function)
+    if dataset_name == 'CiteSeer':
+        dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transform_function,
+                            transform=transform_function)
+    if dataset_name == 'PubMed':
+        dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transform_function,
+                            transform=transform_function)
 
     # set shuffle to False to keep the order of the dataset otherwise
     # the split will be different for each epoch
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    dataset_sizes = len(dataset)
-    return dataloader, dataset_sizes
+    # dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    # dataset_sizes = len(dataset)
+    # return dataloader, dataset_sizes
+
+    return dataset[0]

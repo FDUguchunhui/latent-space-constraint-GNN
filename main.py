@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.01)
     parser.add_argument('--regularization', type=float, default=1.0)
-    parser.add_argument('--early_stop_patience', type=int, default=30)
+    parser.add_argument('--early_stop_patience', type=int, default=50)
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
 

@@ -175,10 +175,23 @@ if __name__ == '__main__':
                                         num_val=0.1, num_test=0.2,
                                         neg_sampling_ratio=1,
                                         split_labels=True)
-    dataset = Planetoid(root='data/cora2', name='Cora',
-                    transform= T.Compose([
-                        T.ToUndirected(),
-                        T.NormalizeFeatures(), random_link_split]))
+    if args.dataset == 'Cora':
+        dataset = Planetoid(root='data/vgae_data', name='Cora',
+                        transform= T.Compose([
+                            T.ToUndirected(),
+                            T.NormalizeFeatures(), random_link_split]))
+    if args.dataset == 'CiteSeer':
+        dataset = Planetoid(root='data/vgae_data', name='CiteSeer',
+                        transform= T.Compose([
+                            T.ToUndirected(),
+                            T.NormalizeFeatures(), random_link_split]))
+    if args.dataset == 'PubMed':
+        dataset = Planetoid(root='data/vgae_data', name='PubMed',
+                        transform= T.Compose([
+                            T.ToUndirected(),
+                            T.NormalizeFeatures(), random_link_split]))
+    if dataset is None:
+        raise ValueError('Dataset not found')
 
     # make shuffle=False to keep the order of the dataset, same as CGVAE
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)

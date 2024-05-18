@@ -141,13 +141,15 @@ class CGVAE(torch.nn.Module):
 def train(device, dataloader, num_node_features,
           pre_trained_baseline_net,
           model_path,
+          hidden_size=32,
+          latent_size=16,
           learning_rate=10e-3,
           num_epochs=100,
           early_stop_patience=10,
           regularization=1.0):
 
-    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=32,
-                      latent_size=16, pre_treained_baseline_net=pre_trained_baseline_net)
+    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=hidden_size,
+                      latent_size=latent_size, pre_treained_baseline_net=pre_trained_baseline_net)
     cgvae_net.to(device)
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     reconstruction_loss = MaskedReconstructionLoss()
