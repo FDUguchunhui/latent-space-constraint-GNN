@@ -10,16 +10,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Define the different split_ratio and dataset choices
-    # split from 0.1 to 0.9 by 0.1
-    split_ratios = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
+    split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875]
+    regularizations = [0.1, 0.3, 0.5, 1, 2]
     datasets = ['PubMed']
 
     # Iterate over the choices
-    for split_ratio in split_ratios:
-        for dataset in datasets:
-            for i in range(10):  # Run three times
-                seed = args.seed + i  # Increment seed by 1 each time
-                # Run main.py with the current split_ratio, dataset, and seed
-                subprocess.run(['python', 'main.py', '--split_ratio', str(split_ratio), '--dataset', dataset, '--seed', str(seed)])
-                # sleep for 1 seconds
-                subprocess.run(['sleep', '1'])
+    for dataset in datasets:
+        for split_ratio in split_ratios:
+            for regularization in regularizations:
+                for i in range(3):
+                    seed = args.seed + i  # Increment seed by 1 each time
+                    # Run main.py with the current split_ratio, dataset, and seed
+                    subprocess.run(['python', 'main.py', '--split_ratio', str(split_ratio),
+                                    '--dataset', dataset, '--regularization', str(regularization), '--seed', str(seed)])
+                    # sleep for 1 seconds
+                    subprocess.run(['sleep', '1'])

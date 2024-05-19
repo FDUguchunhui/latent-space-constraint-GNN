@@ -142,11 +142,11 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=300)
+    parser.add_argument('--num_epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.01)
     parser.add_argument('--regularization', type=float, default=1.0)
-    parser.add_argument('--early_stop_patience', type=int, default=50)
+    parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     # other arguments
     parser.add_argument('--results', type=str, default='results/vgae_results.json')
 
@@ -204,7 +204,10 @@ if __name__ == '__main__':
         'seed': args.seed,
         'AUC': round(auc, 4),
         'AP': round(ap, 4),
-        'execution_time': round(execution_time, 2)
+        'execution_time': round(execution_time, 2),
+        'num_epochs': args.num_epochs,
+        'learning_rate': args.learning_rate,
+        'regularization': args.regularization
     }
 
     # Read the existing data

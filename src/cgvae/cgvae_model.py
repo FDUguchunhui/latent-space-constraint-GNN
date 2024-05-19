@@ -174,7 +174,8 @@ def train(device, data, num_node_features,
                             cgvae_net.generation_net(z, output_val.edge_label_index),
                             output_val.edge_label)
                     kl_loss = cgvae_net.kl_divergence()
-                    loss = recon_loss + regularization * (1 / input.num_nodes) * kl_loss
+                    # loss = recon_loss + regularization * (1 / inputs.num_nodes) * kl_loss
+                    loss = recon_loss
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()

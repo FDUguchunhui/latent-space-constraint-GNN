@@ -19,6 +19,7 @@ from torch_geometric.data.datapipes import functional_transform
 from torch_geometric.loader import DataLoader
 import torch
 import numpy as np
+import torch_geometric.transforms as T
 
 # @functional_transform('mask_adjacency_matrix')
 class MaskAdjacencyMatrix(BaseTransform):
@@ -138,7 +139,7 @@ def get_data(root='.', dataset_name:str = None,
              num_val=0.1, num_test=0.2,
              neg_edge_ratio=1.0):
 
-    pre_transforms = [ToUndirected()]
+    pre_transforms = [T.NormalizeFeatures(), ToUndirected()]
     permute_node = PermuteNode()
     pre_transforms.append(permute_node)
 

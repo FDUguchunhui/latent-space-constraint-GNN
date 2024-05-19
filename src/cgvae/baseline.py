@@ -5,6 +5,7 @@ Created: 2/10/24
 """
 import copy
 from pathlib import Path
+
 import numpy as np
 import torch
 from torch import Tensor
@@ -45,10 +46,9 @@ class BaselineNet(pyg.nn.GAE):
         super().__init__(encoder=encoder, decoder=decoder)
 
     @overrides
-    def forward(self, input: pyg.data.Data, target: pyg.data.Data, *args, **kwargs) -> Tensor:
+    def forward(self, input: pyg.data.Data, output_edge_index, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
-        out = self.decode(z,  target.edge_label_index, sigmoid=False, **kwargs)
-        # convert tuple of two tensors into a tensor of 2 dimension
+        out = self.decode(z,  output_edge_index, sigmoid=False, **kwargs)
         return out # out is the entire adjacency matrix
 
     @overrides
@@ -59,7 +59,9 @@ class BaselineNet(pyg.nn.GAE):
     def decode(self, z: Tensor, edge_index: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
         # return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
         logits = self.decoder(z, edge_index, sigmoid=sigmoid)
-        return logits # return the predicted edges (with values > 0.5)
+        sigmoid_output = torch.sigmoid(logits)
+        prediction = (sigmoid_output > 0.5).bool()
+        return logits, edge_index[:, prediction] # return the predicted edges (with values > 0.5)
 
     def predict(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
@@ -82,6 +84,7 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
     # negative sampling ratio is important for sparse adjacency matrix
     criterion = MaskedReconstructionLoss()
     best_loss = np.inf
+    best_epoch = 0
     early_stop_count = 0
     best_model_wts = copy.deepcopy(baseline_net.state_dict())
 
@@ -90,7 +93,6 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
     output_train = data['output']['train'].to(device)
     output_val = data['output']['val'].to(device)
 
-    # todo: may be should I overfitting train and val data for the baseline model?
     for epoch in range(num_epochs):
 
         for phase in ['train', 'val']:
@@ -121,6 +123,7 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
                 if phase == 'val':
                     if epoch_loss < best_loss:
                         best_loss = epoch_loss
+                        best_epoch = epoch
                         best_model_wts = copy.deepcopy(baseline_net.state_dict())
                         early_stop_count = 0
                     else:

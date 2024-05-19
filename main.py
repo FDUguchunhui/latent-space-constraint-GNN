@@ -23,11 +23,11 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=300)
+    parser.add_argument('--num_epochs', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0.5)
-    parser.add_argument('--early_stop_patience', type=int, default=20)
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
 
@@ -60,7 +60,7 @@ if __name__ == '__main__':
         early_stop_patience=args.early_stop_patience
     )
 
-    cgvae_net = cgvae.cgvae_train(
+    cgvae_net, best_epoch = cgvae.cgvae_train(
         device=args.device,
         data=data,
         num_node_features=data['input'].x.size(1),
@@ -85,7 +85,10 @@ if __name__ == '__main__':
         'seed': args.seed,
         'AUC': round(auc, 4),
         'AP': round(ap, 4),
-        'execution_time': round(execution_time, 2)
+        'execution_time': round(execution_time, 2),
+        'best_epochs': best_epoch,
+        'learning_rate': args.learning_rate,
+        'regularization': args.regularization
     }
 
     # Read the existing data
