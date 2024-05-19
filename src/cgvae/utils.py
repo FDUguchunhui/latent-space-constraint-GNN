@@ -5,6 +5,7 @@ Created: 2/11/24
 """
 import torch
 from torch import Tensor
+from torch.nn.modules.loss import _Loss
 from torch_geometric.utils import negative_sampling
 import torch_geometric as pyg
 import torch.nn.functional as F
@@ -14,7 +15,7 @@ class ResidualAdd(torch.nn.Module):
         return x + x_residual
 
 
-class MaskedReconstructionLoss(torch.nn.Module):
+class MaskedReconstructionLoss(_Loss):
     def __init__(self):
         super().__init__()
 

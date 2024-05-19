@@ -4,6 +4,7 @@ Email: fduguchunhui@gmail.com
 Created: 2/10/24
 """
 import copy
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,7 @@ from torch_geometric.nn import GCNConv
 from torch_geometric.nn import InnerProductDecoder
 from tqdm import tqdm
 import torch_geometric as pyg
-
+import torch.nn.functional as F
 from src.cgvae.utils import MaskedReconstructionLoss
 
 EPS = 1e-15
@@ -59,9 +60,7 @@ class BaselineNet(pyg.nn.GAE):
     def decode(self, z: Tensor, edge_index: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
         # return self.decoder.forward_all(z, sigmoid) # decode all edges in the graph
         logits = self.decoder(z, edge_index, sigmoid=sigmoid)
-        sigmoid_output = torch.sigmoid(logits)
-        prediction = (sigmoid_output > 0.5).bool()
-        return logits, edge_index[:, prediction] # return the predicted edges (with values > 0.5)
+        return logits
 
     def predict(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
@@ -82,7 +81,6 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
     baseline_net.to(device)
     optimizer = torch.optim.Adam(baseline_net.parameters(), lr=learning_rate)
     # negative sampling ratio is important for sparse adjacency matrix
-    criterion = MaskedReconstructionLoss()
     best_loss = np.inf
     best_epoch = 0
     early_stop_count = 0
@@ -101,16 +99,20 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
             else:
                 baseline_net.eval()
 
-            with tqdm(total=1, desc=f'NN Epoch {epoch}') as bar:
+            with (tqdm(total=1, desc=f'NN Epoch {epoch}') as bar):
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     # only use input to predict the output edges with train mask
                     if phase == 'train':
-                        edge_label_logits = baseline_net(input, output_train)
-                        loss = criterion(edge_label_logits, output_train.edge_label)
+                        edge_label_logits = baseline_net(input, output_train.edge_label_index)
+                        loss = F.binary_cross_entropy_with_logits(
+                            edge_label_logits,
+                            output_train.edge_label).mean()
                     else:
-                        edge_label_logits = baseline_net(input, output_val)
-                        loss = criterion(edge_label_logits, output_val.edge_label)
+                        edge_label_logits = baseline_net(input, output_val.edge_label_index)
+                        loss = F.binary_cross_entropy_with_logits(
+                            edge_label_logits,
+                            output_val.edge_label).mean()
 
                     if phase == 'train':
                         loss.backward()
@@ -134,6 +136,8 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
 
     baseline_net.load_state_dict(best_model_wts)
     baseline_net.eval()
+
+    logging.info(f'Best epoch: {best_epoch}, best loss: {best_loss}')
 
     # save the final model
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)

@@ -23,17 +23,15 @@ elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
 else:
     device = torch.device('cpu')
 
-# transform = T.Compose([
-#     T.NormalizeFeatures(),
-#     T.ToDevice(device),
-#     T.RandomLinkSplit(num_val=0.05, num_test=0.1, is_undirected=True,
-#                       split_labels=True, add_negative_train_samples=False),
-# ])
-
-
+transform = T.Compose([
+    T.NormalizeFeatures(),
+    T.ToDevice(device),
+    T.RandomLinkSplit(num_val=0.05, num_test=0.1, is_undirected=True,
+                      split_labels=True, add_negative_train_samples=False),
+])
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
 dataset = Planetoid(path, args.dataset, transform=transform)
-# train_data, val_data, test_data = dataset[0]
+train_data, val_data, test_data = dataset[0]
 
 
 class GCNEncoder(torch.nn.Module):
@@ -112,14 +110,11 @@ def test(data):
     return model.test(z, data.pos_edge_label_index, data.neg_edge_label_index)
 
 
-for epoch in range(args.num_epochs):
-    bar = tqdm(dataloader,
-               desc='CVAE Epoch {}'.format(epoch).ljust(20))
-    for i, batch in enumerate(bar):
+times = []
 for epoch in range(1, args.epochs + 1):
-    # start = time.time()
+    start = time.time()
     loss = train()
-    # auc, ap = test(test_data)
-    # print(f'Epoch: {epoch:03d}, AUC: {auc:.4f}, AP: {ap:.4f}')
-    # times.append(time.time() - start)
-# print(f"Median time per epoch: {torch.tensor(times).median():.4f}s")
+    auc, ap = test(test_data)
+    print(f'Epoch: {epoch:03d}, AUC: {auc:.4f}, AP: {ap:.4f}')
+    times.append(time.time() - start)
+print(f"Median time per epoch: {torch.tensor(times).median():.4f}s")

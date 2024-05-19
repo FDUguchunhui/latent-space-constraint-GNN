@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import time
 
 import numpy as np
@@ -16,7 +17,9 @@ import torch_geometric as pyg
 from torch_geometric.nn import VGAE
 import torch_geometric.transforms as T
 from torch_geometric.loader import DataLoader
-
+from sklearn.metrics import roc_auc_score, average_precision_score
+import torch.nn.functional as F
+pyg.seed.seed_everything(123)
 
 # Unconditional generation
 class VariationalGCNEncoder(torch.nn.Module):
@@ -52,6 +55,7 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
     model.to(device)
 
     early_stop_count = 0
+    best_epoch = 0
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     best_loss = np.Inf
 
@@ -75,6 +79,15 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
                     # why zero_grad need to be after set_grad_enabled
                     z = model.encode(batch.x, batch.pos_edge_label_index)
                     loss = model.recon_loss(z, batch.pos_edge_label_index, batch.neg_edge_label_index)
+                    # create boolean mask for with 1 of same length as pos_edge_label and neg_edge_label
+                    # and concatenate them to create a torch tensor with 0 and 1 for edge and non-edge
+                    # with length the same as pos_edge_label and neg_edge_label
+                    true_labels = torch.cat([torch.ones(batch.pos_edge_label.size(0)),
+                                                torch.zeros(batch.neg_edge_label.size(0))])
+                    edge_label_index = torch.cat([batch.pos_edge_label_index, batch.neg_edge_label_index], dim=1)
+                    logits = model.decoder(z, edge_label_index)
+
+                    loss = F.binary_cross_entropy_with_logits(logits, true_labels, reduction='mean')
                     loss = loss + (1 / batch.size(0)) * model.kl_loss()
                     if phase == 'train':
                         loss.backward()
@@ -87,6 +100,7 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
                     # save the best loss
                     if loss.item() < best_loss:
                         best_loss = loss.item()
+                        best_epoch = epoch
                         torch.save(model.state_dict(), model_path)
                         early_stop_count = 0
                     else:
@@ -95,6 +109,8 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
         if early_stop_count >= early_stop_patience:
             break
 
+    logging.info(f'Best epoch: {best_epoch}')
+
     model.load(model_path)
     model.eval()
 
@@ -102,8 +118,6 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), model_path)
 
-from sklearn.metrics import roc_auc_score, average_precision_score
-pyg.seed.seed_everything(123)
 
 def test_model(model, dataloader, device):
     model.eval()
@@ -122,9 +136,6 @@ def test_model(model, dataloader, device):
             roc_auc = roc_auc_score(true_labels, pred_logits)
             # calculate average precision
             average_precision = average_precision_score(true_labels, pred_logits)
-
-    # print the average AUC and average precision
-    print(f"AUC: {roc_auc}, AP: {average_precision}")
 
     return roc_auc, average_precision
 
@@ -198,6 +209,10 @@ if __name__ == '__main__':
     dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
     auc, ap = test_model(model, dataloader=dataloader, device=args.device)
 
+    # logging the average AUC and average precision
+    print(f'AUC: {auc}, AP: {ap}')
+
+
     # Create a dictionary with the data you want to save
     data = {
         'dataset': args.dataset,
@@ -207,7 +222,6 @@ if __name__ == '__main__':
         'execution_time': round(execution_time, 2),
         'num_epochs': args.num_epochs,
         'learning_rate': args.learning_rate,
-        'regularization': args.regularization
     }
 
     # Read the existing data

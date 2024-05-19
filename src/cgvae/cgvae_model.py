@@ -3,6 +3,8 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/11/24
 """
+import copy
+import logging
 
 import numpy as np
 from pathlib import Path
@@ -14,6 +16,7 @@ from torch_geometric.nn import GCNConv, InnerProductDecoder
 from tqdm import tqdm
 from src.cgvae.baseline import BaselineNet
 from src.cgvae.utils import MaskedReconstructionLoss
+import torch.nn.functional as F
 
 
 
@@ -35,8 +38,10 @@ class Encoder(torch.nn.Module):
 
         # extract edge_index and edge_weight from masked_y only in the observed region
         completed_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        # remove duplicate edges
+        # completed_edge_index, _ = pyg.utils.remove_self_loops(completed_edge_index)
         hidden = self.conv1(masked_x.x, completed_edge_index)
-        hidden = torch.relu(hidden)
+        # hidden = torch.relu(hidden)
         z_mu = self.conv_mu(hidden, completed_edge_index)
         z_logstd = self.conv_logstd(hidden, completed_edge_index)
         return z_mu, z_logstd
@@ -65,7 +70,7 @@ class CGVAE(torch.nn.Module):
         self.prior_net = Encoder(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder(sigmoid=False)
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
-        self.y_hat = None
+        self.predicted_y_edge = None
 
     def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
         if self.training:
@@ -76,14 +81,17 @@ class CGVAE(torch.nn.Module):
     def forward(self, masked_x: pyg.data.Data, masked_y: pyg.data.Data):
 
         # get prior
-        if self.y_hat is None:
+        if self.predicted_y_edge is None:
             with torch.no_grad():
                 #todo: check predict instead of sigmoid output
-                edge_label_logits= self.baseline_net(masked_x, masked_y) # y_hat is initial predicted adjacency matrix
+                edge_label_logits= self.baseline_net(masked_x, masked_y.edge_index) # y_hat is initial predicted adjacency matrix
                 y_hat = torch.sigmoid(edge_label_logits)
                 # predict 0 or 1
-                self.y_hat = (y_hat > 0.5).bool()
-                self.predicted_y_edge = masked_y.edge_label_index[:, self.y_hat]
+                y_hat = (y_hat > 0.5).bool()
+                self.predicted_y_edge = masked_y.edge_label_index[:, y_hat]
+                # tuple to tensor
+                # predicted_y_edge = torch.stack(predicted_y_edge, dim=0)
+                # self.predicted_y_edge =  predicted_y_edge.squeeze()
             #todo: baseline is too noise, maybe try use indirect link directly
 
         self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.predicted_y_edge)
@@ -93,21 +101,25 @@ class CGVAE(torch.nn.Module):
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
-    def generate(self) -> Tensor:
+    def generate(self, edge_index) -> Tensor:
         with torch.no_grad():
             # sample from the conditional posterior
             z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
-            return self.generation_net(z)
+            return self.generation_net(z, edge_index)
 
     def kl_divergence(self) -> Tensor:
         posterior_variance = self.posterior_logstd.exp()**2
         prior_variance = self.prior_logstd.exp()**2
-
+        #
         kl = -0.5 * torch.mean(
             torch.sum(1 + 2 * (self.posterior_logstd - self.prior_logstd)
                       - ((self.posterior_mu - self.prior_mu)**2) * (torch.reciprocal(prior_variance))
                       - (posterior_variance/prior_variance), dim=1))
         return kl
+
+        # return -0.5 * torch.mean(
+        #     torch.sum(1 + 2 * self.posterior_logstd - self.posterior_mu**2 - self.posterior_logstd.exp()**2, dim=1))
+
 
     def save(self, model_path):
         torch.save({'prior': self.prior_net.state_dict(),
@@ -141,10 +153,11 @@ def train(device, data, num_node_features,
     cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
                       latent_size=out_channels, pre_treained_baseline_net=pre_trained_baseline_net)
     cgvae_net.to(device)
-    optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
-    reconstruction_loss = MaskedReconstructionLoss()
+    # only optimize the parameters of the CGVAE
+    optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))
     best_loss = np.inf
     early_stop_count = 0
+    best_epoch = 0
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     input = data['input'].to(device)
@@ -161,64 +174,67 @@ def train(device, data, num_node_features,
 
             with tqdm(total=1, desc=f'CGVAE Epoch {epoch}') as bar:
                 optimizer.zero_grad()
-                epoch_loss = 0
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
                         z = cgvae_net(input, output_train)
-                        recon_loss = reconstruction_loss(
+                        loss = F.binary_cross_entropy_with_logits(
                             cgvae_net.generation_net(z, output_train.edge_label_index),
-                            output_train.edge_label)
+                            output_train.edge_label).mean()
                     else:
                         z = cgvae_net(input, output_val)
-                        recon_loss = reconstruction_loss(
+                        loss = F.binary_cross_entropy_with_logits(
                             cgvae_net.generation_net(z, output_val.edge_label_index),
-                            output_val.edge_label)
-                    kl_loss = cgvae_net.kl_divergence()
-                    # loss = recon_loss + regularization * (1 / inputs.num_nodes) * kl_loss
-                    loss = recon_loss
+                                                     output_val.edge_label, reduction='mean')
+                    # todo: the KL need to be adjusted by size of output
+                    loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
+
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
 
-                    epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
+                epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
                 bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
                                 early_stop_count=early_stop_count)
-                bar.update()
 
-            if phase == 'val':
-                if epoch_loss < best_loss:
-                    best_loss = epoch_loss
-                    cgvae_net.save(model_path)
-                    early_stop_count = 0
-                else:
-                    early_stop_count += 1
+                if phase == 'val':
+                    if epoch_loss < best_loss:
+                        best_loss = epoch_loss
+                        best_epoch = epoch
+                        best_model_wts = copy.deepcopy(cgvae_net.state_dict())
+                        early_stop_count = 0
+                    else:
+                        early_stop_count += 1
 
         if early_stop_count >= early_stop_patience:
             break
 
-    cgvae_net.load(model_path)
+    cgvae_net.load_state_dict(best_model_wts)
     cgvae_net.eval()
 
+    # save the final model
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(cgvae_net.state_dict(), model_path)
 
-    return cgvae_net
+    logging.info(f'Best epoch: {best_epoch}')
+
+    return cgvae_net, best_epoch #todo: return tuple may not be good should try logger later
 
 def test( model: CGVAE, data, device='cpu'):
     model.to(device)
     model.eval()
     with torch.no_grad():
         input = data['input'].to(device)
+        # todo: problem here
         output_test = data['output']['test'].to(device)
 
-        z = model(input, output_test)
+        predicted_logits = model.generate(output_test.edge_label_index)
         # sample from the conditional posterior and calculate AUC
-        output_edge_label = output_test.edge_label.cpu().numpy()
-        pred_logits = model.generation_net(z, output_test.edge_label_index).cpu().numpy()
+        # output_edge_label = output_test.edge_label.int().cpu().numpy()
+        # pred_logits = model.generation_net(z, output_test.edge_label_index).cpu().numpy()
         # calculate AUC for each batch for output_logits and output_labels
-        roc_auc = roc_auc_score(output_edge_label, pred_logits)
+        roc_auc = roc_auc_score(output_test.edge_label, predicted_logits)
         # calculate average precision
-        precision, recall, _ = precision_recall_curve(output_edge_label, pred_logits)
-        average_precision = average_precision_score(output_edge_label, pred_logits)
+        precision, recall, _ = precision_recall_curve(output_test.edge_label, predicted_logits)
+        average_precision = average_precision_score(output_test.edge_label, predicted_logits)
 
     return roc_auc, average_precision
