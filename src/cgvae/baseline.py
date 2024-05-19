@@ -6,6 +6,7 @@ Created: 2/10/24
 import copy
 import logging
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
@@ -13,6 +14,7 @@ from torch import Tensor
 from overrides import overrides
 from torch_geometric.nn import GCNConv
 from torch_geometric.nn import InnerProductDecoder
+from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch_geometric as pyg
 import torch.nn.functional as F
@@ -22,27 +24,42 @@ EPS = 1e-15
 MAX_LOGSTD = 10
 
 class BaselineNet(pyg.nn.GAE):
+
+    class GCNEncoder(torch.nn.Module):
+        def __init__(self, in_channels, out_channels):
+            super().__init__()
+            self.conv1 = GCNConv(in_channels, 2 * out_channels)
+            self.conv2 = GCNConv(2 * out_channels, 2*out_channels)
+            self.conv3 = GCNConv(2*out_channels, out_channels)
+
+        def forward(self, x, edge_index):
+            x = self.conv1(x, edge_index).relu()
+            x = self.conv2(x, edge_index).relu()
+            x = self.conv3(x, edge_index)
+            return x
+
     '''
     The purpose of this class is to provide a baseline model for the CGVAE.
     '''
-    def __init__(self, num_node_features, hidden_size, latent_size):
+    def __init__(self, num_node_features,out_channels, **kwargs):
         #todo: for baseline maybe try some other architectures than GCN since
         # the predicted adjacency matrix is not clear enough to be used as input
 
         # use two layers of GCNConv to encode the graph nodes
-        encoder = pyg.nn.Sequential('x, edge_index, edge_weight', [
-            (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index, edge_weight -> x1'),
-            # (torch.nn.Linear(num_node_features, hidden_size), 'x -> x'),
-            # (ResidualAdd(), 'x1, x -> x1'),
-            (torch.nn.ReLU(), 'x1 -> x1'),
-            # another layer of GCNConv
-            (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index, edge_weight -> x1'),
-            (torch.nn.ReLU(), 'x1 -> x1'),
-            (GCNConv(in_channels=hidden_size, out_channels=latent_size),'x1, edge_index, edge_weight -> x1')
-        ])
+        # encoder = pyg.nn.Sequential('x, edge_index', [
+        #     (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index -> x1'),
+        #     # (torch.nn.Linear(num_node_features, hidden_size), 'x -> x'),
+        #     # (ResidualAdd(), 'x1, x -> x1'),
+        #     (torch.nn.ReLU(), 'x1 -> x1'),
+        #     # another layer of GCNConv
+        #     (GCNConv(in_channels=num_node_features, out_channels=hidden_size), 'x, edge_index -> x1'),
+        #     (torch.nn.ReLU(), 'x1 -> x1'),
+        #     (GCNConv(in_channels=hidden_size, out_channels=latent_size),'x1, edge_index -> x1')
+        # ])
         # self.conv1 = GCNConv(in_channels=num_node_features, out_channels=hidden1_size)
         # self.conv2 = GCNConv(in_channels=hidden1_size, out_channels=hidden2_size)
         # use InnerProductDecoder to decode the graph nodes
+        encoder = self.GCNEncoder(num_node_features, out_channels)
         decoder = InnerProductDecoder()
         super().__init__(encoder=encoder, decoder=decoder)
 
@@ -53,8 +70,8 @@ class BaselineNet(pyg.nn.GAE):
         return out # out is the entire adjacency matrix
 
     @overrides
-    def encode(self, x: Tensor, edge_index: Tensor, edge_weight: Tensor, *args, **kwargs) -> Tensor:
-        return self.encoder(x, edge_index, edge_weight)
+    def encode(self, x: Tensor, edge_index: Tensor, *args, **kwargs) -> Tensor:
+        return self.encoder(x, edge_index)
 
     @overrides
     def decode(self, z: Tensor, edge_index: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
@@ -71,16 +88,38 @@ class BaselineNet(pyg.nn.GAE):
         # make sigmoid_output as 1 if it is greater than 0.5, otherwise 0
         return (sigmoid_output > 0.99).float()
 
+    def recon_loss(self, z: Tensor, pos_edge_index: Tensor,
+                   neg_edge_index: Optional[Tensor] = None) -> Tensor:
+        r"""Given latent variables :obj:`z`, computes the binary cross
+        entropy loss for positive edges :obj:`pos_edge_index` and negative
+        sampled edges.
+
+        Args:
+            z (torch.Tensor): The latent space :math:`\mathbf{Z}`.
+            pos_edge_index (torch.Tensor): The positive edges to train against.
+            neg_edge_index (torch.Tensor, optional): The negative edges to
+                train against. If not given, uses negative sampling to
+                calculate negative edges. (default: :obj:`None`)
+        """
+        pos_loss = -torch.log(
+            self.decoder(z, pos_edge_index, sigmoid=True) + EPS).mean()
+
+        if neg_edge_index is None:
+            neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
+        neg_loss = -torch.log(1 -
+                              self.decoder(z, neg_edge_index, sigmoid=True) +
+                              EPS).mean()
+        return pos_loss + neg_loss
 
 
 def train(device, data, num_node_features, model_path, learning_rate=10e-3,
-          num_epochs=100, early_stop_patience=10, hidden_size=32, latent_size=16):
+          num_epochs=100, early_stop_patience=10, out_channels=16, neg_sample_ratio=1, split_ratio=0.5):
     '''
     The purpose of this function is to train the baseline model for the CGVAE.
     '''
     # Train baseline
     baseline_net = BaselineNet(num_node_features=num_node_features,
-                               hidden_size=hidden_size, latent_size=latent_size)
+                               out_channels=out_channels)
     baseline_net.to(device)
     optimizer = torch.optim.Adam(baseline_net.parameters(), lr=learning_rate)
     # negative sampling ratio is important for sparse adjacency matrix
@@ -107,15 +146,17 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
                 with torch.set_grad_enabled(phase == 'train'):
                     # only use input to predict the output edges with train mask
                     if phase == 'train':
-                        edge_label_logits = baseline_net(input, output_train.edge_label_index)
-                        loss = F.binary_cross_entropy_with_logits(
-                            edge_label_logits,
-                            output_train.edge_label).mean()
+                        z = baseline_net.encode(input.x, output_train.edge_label_index)
+                        pos_edge_index = output_train.edge_label_index[:, output_train.edge_label == 1]
+                        neg_edge_index = negative_sampling(pos_edge_index,
+                                                           num_nodes=int(z.size(0) * split_ratio),
+                                                           num_neg_samples=int(pos_edge_index.size(1) * neg_sample_ratio))
+                        loss = baseline_net.recon_loss(z, pos_edge_index, neg_edge_index= neg_edge_index)
                     else:
-                        edge_label_logits = baseline_net(input, output_val.edge_label_index)
-                        loss = F.binary_cross_entropy_with_logits(
-                            edge_label_logits,
-                            output_val.edge_label).mean()
+                        z = baseline_net.encode(input.x, output_val.edge_label_index)
+                        pos_edge_index = output_val.edge_label_index[:, output_val.edge_label == 1]
+                        neg_edge_index = output_val.edge_label_index[:, output_val.edge_label == 0]
+                        loss = baseline_net.recon_loss(z, pos_edge_index, neg_edge_index)
 
                     if phase == 'train':
                         loss.backward()

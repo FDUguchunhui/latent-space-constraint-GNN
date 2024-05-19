@@ -5,6 +5,7 @@ Created: 2/11/24
 """
 import copy
 import logging
+from typing import Optional
 
 import numpy as np
 from pathlib import Path
@@ -13,6 +14,7 @@ import torch_geometric as pyg
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder
+from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 from src.cgvae.baseline import BaselineNet
 from src.cgvae.utils import MaskedReconstructionLoss
@@ -46,14 +48,13 @@ class Encoder(torch.nn.Module):
         return z_mu, z_logstd
 
 class Decoder(torch.nn.Module):
-    def __init__(self, sigmoid=False):
+    def __init__(self):
         super().__init__()
-        self.sigmoid = sigmoid
         self.inner_prod_decoder = InnerProductDecoder()
 
-    def forward(self, z, edge_index: Tensor):
+    def forward(self, z, edge_index: Tensor, sigmoid=False):
         # return self.inner_prod_decoder.forward_all(z, sigmoid=self.sigmoid)
-        return self.inner_prod_decoder(z, edge_index, sigmoid=self.sigmoid)
+        return self.inner_prod_decoder(z, edge_index, sigmoid=sigmoid)
 
 class CGVAE(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_size: int,
@@ -68,7 +69,7 @@ class CGVAE(torch.nn.Module):
         self.latent_size = latent_size
         self.baseline_net = pre_treained_baseline_net
         self.prior_net = Encoder(in_channels, hidden_size, latent_size)
-        self.generation_net = Decoder(sigmoid=False)
+        self.generation_net = Decoder()
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
         self.predicted_y_edge = None
         # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
@@ -122,6 +123,28 @@ class CGVAE(torch.nn.Module):
         # return -0.5 * torch.mean(
         #     torch.sum(1 + 2 * self.posterior_logstd - self.posterior_mu**2 - self.posterior_logstd.exp()**2, dim=1))
 
+    def recon_loss(self, z: Tensor, pos_edge_index: Tensor,
+                   neg_edge_index: Optional[Tensor] = None) -> Tensor:
+        r"""Given latent variables :obj:`z`, computes the binary cross
+        entropy loss for positive edges :obj:`pos_edge_index` and negative
+        sampled edges.
+
+        Args:
+            z (torch.Tensor): The latent space :math:`\mathbf{Z}`.
+            pos_edge_index (torch.Tensor): The positive edges to train against.
+            neg_edge_index (torch.Tensor, optional): The negative edges to
+                train against. If not given, uses negative sampling to
+                calculate negative edges. (default: :obj:`None`)
+        """
+        pos_loss = -torch.log(
+            self.generation_net(z, pos_edge_index, sigmoid=True) + EPS).mean()
+
+        if neg_edge_index is None:
+            neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
+        neg_loss = -torch.log(1 -
+                              self.generation_net(z, neg_edge_index, sigmoid=True) +
+                              EPS).mean()
+        return pos_loss + neg_loss
 
     def save(self, model_path):
         torch.save({'prior': self.prior_net.state_dict(),
@@ -150,10 +173,12 @@ def train(device, data, num_node_features,
           learning_rate=10e-3,
           num_epochs=100,
           early_stop_patience=10,
-          regularization=1.0):
+          regularization=1.0,
+          split_ratio=0.5, neg_sample_ratio=1):
 
     cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
-                      latent_size=out_channels, pre_treained_baseline_net=pre_trained_baseline_net)
+                      latent_size=out_channels, pre_treained_baseline_net=pre_trained_baseline_net,
+                      split_ratio=split_ratio)
     cgvae_net.to(device)
     # only optimize the parameters of the CGVAE
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))
@@ -179,14 +204,15 @@ def train(device, data, num_node_features,
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
                         z = cgvae_net(input, output_train)
-                        loss = F.binary_cross_entropy_with_logits(
-                            cgvae_net.generation_net(z, output_train.edge_label_index),
-                            output_train.edge_label).mean()
+                        pos_edge_index = output_train.edge_label_index[:, output_train.edge_label == 1]
+                        neg_edge_index = negative_sampling(pos_edge_index, num_nodes=int(z.size(0) * cgvae_net.split_ratio),
+                                                           num_neg_samples=int(pos_edge_index.size(1)))
+                        loss = cgvae_net.recon_loss(z, pos_edge_index)
                     else:
                         z = cgvae_net(input, output_val)
-                        loss = F.binary_cross_entropy_with_logits(
-                            cgvae_net.generation_net(z, output_val.edge_label_index),
-                                                     output_val.edge_label, reduction='mean')
+                        pos_edge_index = output_val.edge_label_index[:, output_val.edge_label == 1]
+                        neg_edge_index = output_val.edge_label_index[:, output_val.edge_label == 0]
+                        loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index)
                     # todo: the KL need to be adjusted by size of output
                     loss = loss + regularization * (1/(input.size(0) * cgvae_net.split_ratio**2)) * cgvae_net.kl_divergence()
 

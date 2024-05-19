@@ -6,6 +6,7 @@ import time
 import numpy as np
 import torch
 from sklearn.metrics import roc_auc_score, average_precision_score
+from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch.optim as optim
 from torch_geometric.transforms import RandomLinkSplit
@@ -21,6 +22,8 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 import torch.nn.functional as F
 pyg.seed.seed_everything(123)
 
+
+EPS = 1e-15
 # Unconditional generation
 class VariationalGCNEncoder(torch.nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -67,32 +70,25 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
             else:
                 model.eval()
 
-            bar = tqdm(dataloader, desc='VGAE Epoch {}'.format(epoch).ljust(20))
-            for train, val, test in bar:
+            with tqdm(total=1, desc='VGAE Epoch {}'.format(epoch).ljust(20)) as bar:
                 if phase == 'train':
-                    batch = train.to(device)
+                    batch = train_data.to(device)
                 else:
-                    batch = val.to(device)
+                    batch = val_data.to(device)
 
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
-                    if phase == 'train':
-                        z = model.encode(batch.x, batch.edge_index)
-                        logits = model.decoder(z, batch.pos_edge_label_index)
-                        # loss = model.recon_loss(z, batch.edge_index)
-                        loss = F.binary_cross_entropy_with_logits(logits, torch.ones(batch.pos_edge_label_index.size(1)), reduction='mean')
-                    else:
-                        # why zero_grad need to be after set_grad_enabled
-                        z = model.encode(batch.x, batch.pos_edge_label_index)
-                        # loss = model.recon_loss(z, batch.pos_edge_label_index, batch.neg_edge_label_index)
-                        # create boolean mask for with 1 of same length as pos_edge_label and neg_edge_label
-                        # and concatenate them to create a torch tensor with 0 and 1 for edge and non-edge
-                        # with length the same as pos_edge_label and neg_edge_label
-                        true_labels = torch.cat([torch.ones(batch.pos_edge_label.size(0)),
-                                                    torch.zeros(batch.neg_edge_label.size(0))])
-                        edge_label_index = torch.cat([batch.pos_edge_label_index, batch.neg_edge_label_index], dim=1)
-                        logits = model.decoder(z, edge_label_index)
-                        loss = F.binary_cross_entropy_with_logits(z, batch.pos_edge_label_index, reduction='mean')
+                    z = model.encode(batch.x, batch.edge_index)
+                    # logits = model.decoder(z, batch.pos_edge_label_index)
+                    # loss = F.binary_cross_entropy_with_logits(logits, torch.ones(batch.pos_edge_label_index.size(1)), reduction='mean')
+                    pos_loss = -torch.log(
+                        model.decoder(z, batch.pos_edge_label_index, sigmoid=True) + EPS).mean()
+                    neg_edge_index = negative_sampling(batch.pos_edge_label_index, z.size(0))
+                    neg_loss = -torch.log(1 -
+                                          model.decoder(z, neg_edge_index, sigmoid=True) +
+                                          EPS).mean()
+                    loss = pos_loss + neg_loss
+                    # loss = model.recon_loss(z, train_data.pos_edge_label_index)
 
                     loss = loss + (1 / batch.size(0)) * model.kl_loss()
                     if phase == 'train':
@@ -115,7 +111,7 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
         if early_stop_count >= early_stop_patience:
             break
 
-    logging.info(f'Best epoch: {best_epoch}')
+    print(f'Best epoch: {best_epoch}')
 
     model.load(model_path)
     model.eval()
@@ -125,25 +121,12 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
     torch.save(model.state_dict(), model_path)
 
 
-def test_model(model, dataloader, device):
+def test_model(model, data, device):
     model.eval()
     with torch.no_grad():
-        for train, val, test in dataloader:
-            batch = test.to(device)
-            logits = model.generate()
-            pos_pred_logits = logits[batch.pos_edge_label_index[0], batch.pos_edge_label_index[1]].cpu().numpy()
-            neg_pred_logits = logits[batch.neg_edge_label_index[0], batch.neg_edge_label_index[1]].cpu().numpy()
-            pred_logits = np.concatenate((pos_pred_logits, neg_pred_logits))
-            # create a torch tensor with 0 and 1 for edge and non-edge with
-            # length the same as pos_edge_label and neg_edge_label
-            true_labels = torch.cat([torch.ones(batch.pos_edge_label.size(0)),
-                                     torch.zeros(batch.neg_edge_label.size(0))])
-            # calculate AUC for each batch for output_logits and output_labels
-            roc_auc = roc_auc_score(true_labels, pred_logits)
-            # calculate average precision
-            average_precision = average_precision_score(true_labels, pred_logits)
-
-    return roc_auc, average_precision
+        z = model.encode(data.x, data.edge_index)
+        auc, ap = model.test(z, data.pos_edge_label_index, data.neg_edge_label_index)
+    return auc, ap
 
 
 if __name__ == '__main__':
@@ -198,8 +181,7 @@ if __name__ == '__main__':
     if dataset is None:
         raise ValueError('Dataset not found')
 
-    # make shuffle=False to keep the order of the dataset, same as CGVAE
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+    train_data, val_data, test_data = dataset[0]
 
     vgae_model = VGAEWithGenerate(VariationalGCNEncoder(
         dataset.num_node_features, args.out_channels))
@@ -213,8 +195,7 @@ if __name__ == '__main__':
                 device=args.device)
     execution_time = time.time() - start_time
 
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    auc, ap = test_model(model, dataloader=dataloader, device=args.device)
+    auc, ap = test_model(model, data=test_data, device=args.device)
 
     # logging the average AUC and average precision
     print(f'AUC: {auc}, AP: {ap}')

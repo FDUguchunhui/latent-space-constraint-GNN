@@ -501,3 +501,34 @@
 {"dataset": "PubMed", "split_ratio": 1.0, "seed": 66, "AUC": 0.94, "AP": 0.9402, "execution_time": 28.21, "best_epochs": 199, "learning_rate": 0.01, "regularization": 1e-05}
 {"dataset": "PubMed", "split_ratio": 1.0, "seed": 66, "AUC": 0.9285, "AP": 0.9313, "execution_time": 29.09, "best_epochs": 199, "learning_rate": 0.01, "regularization": 1e-05}
 {"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.7055, "AP": 0.7138, "execution_time": 6.08, "best_epochs": 81, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.688, "AP": 0.7012, "execution_time": 6.22, "best_epochs": 76, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.7922, "AP": 0.7966, "execution_time": 6.2, "best_epochs": 198, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.6332, "AP": 0.6425, "execution_time": 6.29, "best_epochs": 199, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.7055, "AP": 0.7138, "execution_time": 6.16, "best_epochs": 81, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.8179, "AP": 0.8149, "execution_time": 6.8, "best_epochs": 198, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.8179, "AP": 0.8149, "execution_time": 6.88, "best_epochs": 198, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "PubMed", "split_ratio": 1.0, "seed": 66, "AUC": 0.9217, "AP": 0.9246, "execution_time": 30.73, "best_epochs": 199, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "PubMed", "split_ratio": 1.0, "seed": 66, "AUC": 0.9474, "AP": 0.9493, "execution_time": 64.93, "best_epochs": 399, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "PubMed", "split_ratio": 1.0, "seed": 66, "AUC": 0.9494, "AP": 0.9504, "execution_time": 82.79, "best_epochs": 399, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "PubMed", "split_ratio": 1.0, "seed": 66, "AUC": 0.9494, "AP": 0.9504, "execution_time": 84.42, "best_epochs": 399, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "PubMed", "split_ratio": 0.5, "seed": 66, "AUC": 0.9214, "AP": 0.9254, "execution_time": 67.86, "best_epochs": 398, "learning_rate": 0.01, "regularization": 100.0}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.668, "AP": 0.6903, "execution_time": 8.03, "best_epochs": 0, "learning_rate": 0.01, "regularization": 100.0}
+{"dataset": "Cora", "split_ratio": 0.5, "seed": 66, "AUC": 0.753, "AP": 0.7635, "execution_time": 6.91, "best_epochs": 197, "learning_rate": 0.01, "regularization": 100.0}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.753, "AP": 0.7613, "execution_time": 8.11, "best_epochs": 199, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.8848, "AP": 0.8864, "execution_time": 15.84, "best_epochs": 369, "learning_rate": 0.01, "regularization": 1e-05}
+{"dataset": "Cora", "split_ratio": 0.3, "seed": 66, "AUC": 0.7167, "AP": 0.767, "execution_time": 12.69, "best_epochs": 118, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.3, "seed": 66, "AUC": 0.661, "AP": 0.6528, "execution_time": 0.75, "best_epochs": 6, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.1, "seed": 66, "AUC": 0.7851, "AP": 0.8388, "execution_time": 0.76, "best_epochs": 0, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.1, "seed": 66, "AUC": 0.7851, "AP": 0.8388, "execution_time": 0.77, "best_epochs": 0, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.1, "seed": 66, "AUC": 0.843, "AP": 0.8891, "execution_time": 0.76, "best_epochs": 0, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.1, "seed": 66, "AUC": 0.843, "AP": 0.8767, "execution_time": 0.73, "best_epochs": 0, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.5, "seed": 66, "AUC": 0.6855, "AP": 0.7013, "execution_time": 0.78, "best_epochs": 4, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "Cora", "split_ratio": 0.5, "seed": 66, "AUC": 0.769, "AP": 0.777, "execution_time": 4.84, "best_epochs": 111, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "PubMed", "split_ratio": 0.5, "seed": 66, "AUC": 0.9445, "AP": 0.9464, "execution_time": 47.66, "best_epochs": 395, "learning_rate": 0.01, "regularization": 10.0}
+{"dataset": "PubMed", "split_ratio": 0.5, "seed": 66, "AUC": 0.9454, "AP": 0.9473, "execution_time": 50.09, "best_epochs": 396, "learning_rate": 0.01, "regularization": 10.0, "neg_sample_ratio": 1}
+{"dataset": "PubMed", "split_ratio": 0.5, "seed": 66, "AUC": 0.9451, "AP": 0.9474, "execution_time": 75.59, "best_epochs": 501, "learning_rate": 0.01, "regularization": 10.0, "neg_sample_ratio": 1}
+{"dataset": "Cora", "split_ratio": 0.5, "seed": 66, "AUC": 0.7623, "AP": 0.7737, "execution_time": 5.12, "best_epochs": 120, "learning_rate": 0.01, "regularization": 10.0, "neg_sample_ratio": 1}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.8701, "AP": 0.8741, "execution_time": 9.31, "best_epochs": 298, "learning_rate": 0.01, "regularization": 1e-05, "neg_sample_ratio": 1}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.877, "AP": 0.8886, "execution_time": 9.29, "best_epochs": 254, "learning_rate": 0.01, "regularization": 1e-05, "neg_sample_ratio": 1.0}
+{"dataset": "Cora", "split_ratio": 1.0, "seed": 66, "AUC": 0.8644, "AP": 0.8725, "execution_time": 9.33, "best_epochs": 296, "learning_rate": 0.01, "regularization": 10.0, "neg_sample_ratio": 1.0}
+{"dataset": "Cora", "split_ratio": 0.5, "seed": 66, "AUC": 0.6643, "AP": 0.6991, "execution_time": 3.98, "best_epochs": 77, "learning_rate": 0.01, "regularization": 10.0, "neg_sample_ratio": 1.0}

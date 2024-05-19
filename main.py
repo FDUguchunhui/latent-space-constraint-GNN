@@ -18,7 +18,7 @@ if __name__ == '__main__':
     parser.add_argument('--split_ratio', type=float, default=0.5)
     parser.add_argument('--num_val', type=float, default=0.1)
     parser.add_argument('--num_test', type=float, default=0.2)
-    parser.add_argument('--neg_edge_ratio', type=float, default=1)
+    parser.add_argument('--neg_sample_ratio', type=float, default=1)
     # model train arguments
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
@@ -45,7 +45,7 @@ if __name__ == '__main__':
                                                              mask_ratio=args.split_ratio,
                                                              num_val=args.num_val,
                                                              num_test=args.num_test,
-                                                             neg_edge_ratio=args.neg_edge_ratio)
+                                                             neg_edge_ratio=args.neg_sample_ratio)
 
     # count run time from here
     time_start = time.time()
@@ -57,7 +57,9 @@ if __name__ == '__main__':
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
         model_path=osp.join('checkpoints', str(args.seed), 'baseline_net.pth'),
-        early_stop_patience=args.early_stop_patience
+        early_stop_patience=args.early_stop_patience,
+        split_ratio=args.split_ratio,
+        neg_sample_ratio=args.neg_sample_ratio
     )
 
     cgvae_net, best_epoch = cgvae.cgvae_train(
@@ -69,7 +71,9 @@ if __name__ == '__main__':
         pre_trained_baseline_net=baseline_net,
         model_path=osp.join('checkpoints', str(args.seed), 'cgvae_net.pth'),
         early_stop_patience=args.early_stop_patience,
-        regularization=args.regularization
+        regularization=args.regularization,
+        split_ratio=args.split_ratio,
+        neg_sample_ratio=args.neg_sample_ratio
     )
 
     end_time = time.time()
@@ -88,7 +92,8 @@ if __name__ == '__main__':
         'execution_time': round(execution_time, 2),
         'best_epochs': best_epoch,
         'learning_rate': args.learning_rate,
-        'regularization': args.regularization
+        'regularization': args.regularization,
+        'neg_sample_ratio': args.neg_sample_ratio,
     }
 
     # Read the existing data

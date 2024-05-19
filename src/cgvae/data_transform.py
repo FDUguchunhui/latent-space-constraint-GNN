@@ -45,6 +45,7 @@ class MaskAdjacencyMatrix(BaseTransform):
         # It was tried to set it as 0.5 to denote the that the edge is neither 0 (non-existent) but the result is not
         # as expected.
         MASK_VALUE = 0
+        split_index = int(dim * self.ratio)
         # TODO: the rule about what region of adjacency matrix is masked is different from the mask in image since
         #   the adjacency matrix is symmetric and the image is not necessarily symmetric. Current implementation only
         #   masks the bottom-right quadrant of the adjacency matrix. But it should support more masking options later.
@@ -53,9 +54,9 @@ class MaskAdjacencyMatrix(BaseTransform):
         # ----------
         # [ 0 ][ 0 ]
         # mask quadrant top-right & bottom-right
-        out_adj_mat[:, int(dim * self.ratio):] = MASK_VALUE
+        out_adj_mat[:, int(split_index):] = MASK_VALUE
         # mask quadrant bottom-left
-        out_adj_mat[int(dim * self.ratio):, : int(dim * self.ratio)] = MASK_VALUE
+        out_adj_mat[int(split_index):, : int(split_index)] = MASK_VALUE
         out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(out_adj_mat)
 
         # sample negative edges only from the observed (non-masked) region
@@ -63,8 +64,8 @@ class MaskAdjacencyMatrix(BaseTransform):
         # with the masked region set to 1 and use the negative_sampling function to sample negative edges
         # there may be better way to do this
         temp_adj_mat = adj_mat.clone()
-        temp_adj_mat[:, int(dim * self.ratio):] = 1
-        temp_adj_mat[int(dim * self.ratio):, : int(dim * self.ratio)] = 1
+        temp_adj_mat[:, int(split_index):] = 1
+        temp_adj_mat[int(split_index):, : int(split_index)] = 1
         pos_edges_observed_out, _ = pyg.utils.dense_to_sparse(temp_adj_mat)
         # the output is pyg.data.Data object but with additional attributes "neg_edge_index"
         out = Data(data.x, edge_index=out_edge_index, edge_weight=out_edge_weight)
@@ -74,7 +75,7 @@ class MaskAdjacencyMatrix(BaseTransform):
         # [ 0 ][ 1 ]
         # ----------
         # [ 1 ][ 1 ]
-        inp_adj_mat[:int(dim * self.ratio), :int(dim * self.ratio)] = MASK_VALUE
+        inp_adj_mat[:int(split_index), :int(split_index)] = MASK_VALUE
         inp_edge_index, inp_edge_weight = pyg.utils.dense_to_sparse(inp_adj_mat)
         inp = Data(data.x, edge_index=inp_edge_index, edge_weight=inp_edge_weight)
         sample = {'input': inp, 'output': out}
