@@ -76,18 +76,24 @@ def train_model(model, epoch, learning_rate, early_stop_patience, model_path, de
 
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
-                    # why zero_grad need to be after set_grad_enabled
-                    z = model.encode(batch.x, batch.pos_edge_label_index)
-                    loss = model.recon_loss(z, batch.pos_edge_label_index, batch.neg_edge_label_index)
-                    # create boolean mask for with 1 of same length as pos_edge_label and neg_edge_label
-                    # and concatenate them to create a torch tensor with 0 and 1 for edge and non-edge
-                    # with length the same as pos_edge_label and neg_edge_label
-                    true_labels = torch.cat([torch.ones(batch.pos_edge_label.size(0)),
-                                                torch.zeros(batch.neg_edge_label.size(0))])
-                    edge_label_index = torch.cat([batch.pos_edge_label_index, batch.neg_edge_label_index], dim=1)
-                    logits = model.decoder(z, edge_label_index)
+                    if phase == 'train':
+                        z = model.encode(batch.x, batch.edge_index)
+                        logits = model.decoder(z, batch.pos_edge_label_index)
+                        # loss = model.recon_loss(z, batch.edge_index)
+                        loss = F.binary_cross_entropy_with_logits(logits, torch.ones(batch.pos_edge_label_index.size(1)), reduction='mean')
+                    else:
+                        # why zero_grad need to be after set_grad_enabled
+                        z = model.encode(batch.x, batch.pos_edge_label_index)
+                        # loss = model.recon_loss(z, batch.pos_edge_label_index, batch.neg_edge_label_index)
+                        # create boolean mask for with 1 of same length as pos_edge_label and neg_edge_label
+                        # and concatenate them to create a torch tensor with 0 and 1 for edge and non-edge
+                        # with length the same as pos_edge_label and neg_edge_label
+                        true_labels = torch.cat([torch.ones(batch.pos_edge_label.size(0)),
+                                                    torch.zeros(batch.neg_edge_label.size(0))])
+                        edge_label_index = torch.cat([batch.pos_edge_label_index, batch.neg_edge_label_index], dim=1)
+                        logits = model.decoder(z, edge_label_index)
+                        loss = F.binary_cross_entropy_with_logits(z, batch.pos_edge_label_index, reduction='mean')
 
-                    loss = F.binary_cross_entropy_with_logits(logits, true_labels, reduction='mean')
                     loss = loss + (1 / batch.size(0)) * model.kl_loss()
                     if phase == 'train':
                         loss.backward()
@@ -172,7 +178,8 @@ if __name__ == '__main__':
     random_link_split = RandomLinkSplit(is_undirected=True,
                                         num_val=0.1, num_test=0.2,
                                         neg_sampling_ratio=1,
-                                        split_labels=True)
+                                        split_labels=True,
+                                        add_negative_train_samples=False)
     if args.dataset == 'Cora':
         dataset = Planetoid(root='data/vgae_data', name='Cora',
                         transform= T.Compose([

@@ -3,10 +3,13 @@ import os.path as osp
 import time
 
 import torch
+import torch_geometric.seed
 
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import GAE, VGAE, GCNConv
+
+torch_geometric.seed.seed_everything(42)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--variational', action='store_true')
@@ -26,7 +29,7 @@ else:
 transform = T.Compose([
     T.NormalizeFeatures(),
     T.ToDevice(device),
-    T.RandomLinkSplit(num_val=0.05, num_test=0.1, is_undirected=True,
+    T.RandomLinkSplit(num_val=0.1, num_test=0.2, is_undirected=True,
                       split_labels=True, add_negative_train_samples=False),
 ])
 path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', 'Planetoid')
@@ -95,7 +98,7 @@ def train():
     model.train()
     optimizer.zero_grad()
     z = model.encode(train_data.x, train_data.edge_index)
-    loss = model.recon_loss(z, train_data.pos_edge_label_index)
+    loss = model.recon_loss(z, train_data.pos_edge_label_index) #todo: the original one doesn't use neg training samples
     if args.variational:
         loss = loss + (1 / train_data.num_nodes) * model.kl_loss()
     loss.backward()
@@ -108,6 +111,7 @@ def test(data):
     model.eval()
     z = model.encode(data.x, data.edge_index)
     return model.test(z, data.pos_edge_label_index, data.neg_edge_label_index)
+
 
 times = []
 for epoch in range(1, args.epochs + 1):

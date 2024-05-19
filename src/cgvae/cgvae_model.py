@@ -40,8 +40,7 @@ class Encoder(torch.nn.Module):
         completed_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # remove duplicate edges
         # completed_edge_index, _ = pyg.utils.remove_self_loops(completed_edge_index)
-        hidden = self.conv1(masked_x.x, completed_edge_index)
-        # hidden = torch.relu(hidden)
+        hidden = self.conv1(masked_x.x, completed_edge_index).relu()
         z_mu = self.conv_mu(hidden, completed_edge_index)
         z_logstd = self.conv_logstd(hidden, completed_edge_index)
         return z_mu, z_logstd
@@ -58,7 +57,8 @@ class Decoder(torch.nn.Module):
 
 class CGVAE(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_size: int,
-                 latent_size: int, pre_treained_baseline_net: BaselineNet):
+                 latent_size: int, pre_treained_baseline_net: BaselineNet,
+                 split_ratio=0.5):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -71,7 +71,9 @@ class CGVAE(torch.nn.Module):
         self.generation_net = Decoder(sigmoid=False)
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
         self.predicted_y_edge = None
-
+        # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
+        # and standardize KL loss for the size of the output
+        self.split_ratio = split_ratio
     def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
         if self.training:
             return mu + torch.randn_like(logstd) * torch.exp(logstd)
@@ -186,7 +188,7 @@ def train(device, data, num_node_features,
                             cgvae_net.generation_net(z, output_val.edge_label_index),
                                                      output_val.edge_label, reduction='mean')
                     # todo: the KL need to be adjusted by size of output
-                    loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
+                    loss = loss + regularization * (1/(input.size(0) * cgvae_net.split_ratio**2)) * cgvae_net.kl_divergence()
 
                     if phase == 'train':
                         loss.backward()
@@ -226,8 +228,9 @@ def test( model: CGVAE, data, device='cpu'):
         input = data['input'].to(device)
         # todo: problem here
         output_test = data['output']['test'].to(device)
-
-        predicted_logits = model.generate(output_test.edge_label_index)
+        z = model(input, output_test)
+        predicted_logits = model.generation_net(z, output_test.edge_label_index)
+        # predicted_logits = model.generate(output_test.edge_label_index)
         # sample from the conditional posterior and calculate AUC
         # output_edge_label = output_test.edge_label.int().cpu().numpy()
         # pred_logits = model.generation_net(z, output_test.edge_label_index).cpu().numpy()

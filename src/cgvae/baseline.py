@@ -63,10 +63,13 @@ class BaselineNet(pyg.nn.GAE):
         return logits
 
     def predict(self, input: pyg.data.Data, *args, **kwargs) -> Tensor:
+        ''''
+        get binary prediction of the edges in the graph for a given subset of nodes
+        '''
         z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
         sigmoid_output = self.decoder.forward_all(z, sigmoid=False, **kwargs)
         # make sigmoid_output as 1 if it is greater than 0.5, otherwise 0
-        return (sigmoid_output > 0.5).float()
+        return (sigmoid_output > 0.99).float()
 
 
 

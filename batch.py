@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # Define the different split_ratio and dataset choices
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
     split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875]
-    regularizations = [0.1, 0.3, 0.5, 1, 2]
+    regularizations = [0.001, 0.01, 0.1, 10, 100, 1000]
     datasets = ['Cora', 'CiteSeer']
 
     # Iterate over the choices
