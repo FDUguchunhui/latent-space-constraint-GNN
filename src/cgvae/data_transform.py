@@ -95,13 +95,19 @@ class MaskAdjacencyMatrix(BaseTransform):
 
 
 class AddFalsePositiveEdge(BaseTransform):
-    def __init__(self, ratio=0.5):
+    def __init__(self, ratio=0.5, false_pos_ratio=1.0):
         super().__init__()
         self.ratio = ratio
+        self.false_pos_ratio = false_pos_ratio
 
-    def forward(self, data: pyg.data.Data) -> Any:
-        pyg.utils.negative_sampling(data.edge_index, num_nodes=data.num_nodes,
-                                                      num_neg_samples=int(data.edge_index.size(1) * self.ratio))
+    def forward(self, data: dict) -> Any:
+        output = data['output']
+        split_index = int(output.num_nodes * self.ratio)
+        false_pos_edge = pyg.utils.negative_sampling(output.edge_index,
+                                                     num_nodes=split_index,
+                                                      num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
+        output.edge_index = torch.cat([output.edge_index, false_pos_edge], dim=1)
+        return {'input': data['input'], 'output': output}
 
 class RemoveNodeFeature(BaseTransform):
     def __init__(self, ratio=0.5):
@@ -183,15 +189,11 @@ def get_data(root='.', dataset_name:str = None,
     transform_functions = transform_functions + [
         PermuteNode(),
         mask_adjacency_matrix,
+        AddFalsePositiveEdge(ratio=mask_ratio),
         output_random_edge_split
     ]
     transforms = T.Compose(transform_functions)
 
-
-
-    transforms = T.Compose(transform_functions)
-
-    # load data
     if dataset_name == 'KarateClub':
             dataset = KarateClub(transform=transforms)
     if dataset_name == 'Cora':

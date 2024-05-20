@@ -30,8 +30,8 @@ class Encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
         self.conv1 = GCNConv(in_channels, hidden_size)
-        self.conv_mu = GCNConv(in_channels, latent_size)
-        self.conv_logstd = GCNConv(in_channels, latent_size)
+        self.conv_mu = GCNConv(hidden_size, latent_size)
+        self.conv_logstd = GCNConv(hidden_size, latent_size)
 
     def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor):
         # put x and y together in the same adjacency matrix for simplification
@@ -42,9 +42,9 @@ class Encoder(torch.nn.Module):
         completed_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # remove duplicate edges
         # completed_edge_index, _ = pyg.utils.remove_self_loops(completed_edge_index)
-        # x = self.conv1(masked_x.x, completed_edge_index).relu()
-        z_mu = self.conv_mu(masked_x.x, completed_edge_index)
-        z_logstd = self.conv_logstd(masked_x.x, completed_edge_index)
+        x = self.conv1(masked_x.x, completed_edge_index).relu()
+        z_mu = self.conv_mu(x, completed_edge_index)
+        z_logstd = self.conv_logstd(x, completed_edge_index)
         return z_mu, z_logstd
 
 class Decoder(torch.nn.Module):
@@ -120,11 +120,13 @@ class CGVAE(torch.nn.Module):
     def kl_divergence(self) -> Tensor:
         posterior_variance = self.posterior_logstd.exp()**2
         prior_variance = self.prior_logstd.exp()**2
+        split_index = int(self.prior_mu.size(0) * self.split_ratio)
         #
         kl = -0.5 * torch.mean(
-            torch.sum(1 + 2 * (self.posterior_logstd - self.prior_logstd)
-                      - ((self.posterior_mu - self.prior_mu)**2) * (torch.reciprocal(prior_variance))
-                      - (posterior_variance/prior_variance), dim=1))
+            torch.sum(1 + 2 * (self.posterior_logstd[:split_index] - self.prior_logstd[:split_index])
+                      - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2) *
+                               (torch.reciprocal(prior_variance[:split_index]))
+                      - (posterior_variance[:split_index]/prior_variance[:split_index]), dim=1))
         return kl
 
         # return -0.5 * torch.mean(
@@ -143,15 +145,15 @@ class CGVAE(torch.nn.Module):
                 train against. If not given, uses negative sampling to
                 calculate negative edges. (default: :obj:`None`)
         """
-        pos_loss = -torch.log(
-            self.generation_net(z, pos_edge_index, sigmoid=True) + EPS).mean()
 
-        if neg_edge_index is None:
-            neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
-        neg_loss = -torch.log(1 -
-                              self.generation_net(z, neg_edge_index, sigmoid=True) +
-                              EPS).mean()
-        return pos_loss + neg_loss
+        # concatenate positive and negative edges
+        edge_index = torch.cat((pos_edge_index, neg_edge_index), dim=1)
+        logits = self.generation_net(z, edge_index, sigmoid=False)
+        # create target labels
+        true_labels = torch.zeros(logits.size(0), dtype=torch.float, device=logits.device)
+        true_labels[:pos_edge_index.size(1)] = 1
+        loss = F.binary_cross_entropy_with_logits(logits, true_labels, reduction='mean')
+        return loss
 
     def save(self, model_path):
         torch.save({'prior': self.prior_net.state_dict(),
@@ -217,7 +219,7 @@ def train(device,
                         neg_edge_index = negative_sampling(pos_edge_index, num_nodes=int(z.size(0) * cgvae_net.split_ratio),
                                                            num_neg_samples=int(pos_edge_index.size(1) *  neg_sample_ratio) )
                         loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index= neg_edge_index)
-                        loss = loss + regularization * (1/(input.size(0) * cgvae_net.split_ratio**2)) * cgvae_net.kl_divergence()
+                        loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
 
                     else:
                         z = cgvae_net(input, output_val)
