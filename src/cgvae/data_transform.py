@@ -10,7 +10,7 @@ import torch_geometric.seed
 from overrides import overrides
 from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.data import Data
-from torch_geometric.datasets import KarateClub
+from torch_geometric.datasets import KarateClub, AttributedGraphDataset, Yelp, AmazonProducts, Flickr, CoraFull
 from torch_geometric.datasets import Planetoid, PPI
 from torch_geometric.datasets import GNNBenchmarkDataset
 from torch_geometric.datasets import MNISTSuperpixels
@@ -103,6 +103,15 @@ class AddFalsePositiveEdge(BaseTransform):
         pyg.utils.negative_sampling(data.edge_index, num_nodes=data.num_nodes,
                                                       num_neg_samples=int(data.edge_index.size(1) * self.ratio))
 
+class RemoveNodeFeature(BaseTransform):
+    def __init__(self, ratio=0.5):
+        super().__init__()
+
+    def forward(self, data: pyg.data.Data) -> Any:
+        # one-hot encoding of the node position with 0 to num_nodes-1
+        data.x = torch.eye(data.x.size(0), dtype=torch.float)
+        return data
+
 
 class PermuteNode(BaseTransform):
     def __init__(self, seed=0):
@@ -149,12 +158,11 @@ class OutputRandomEdgesSplit(BaseTransform):
 def get_data(root='.', dataset_name:str = None,
              mask_ratio=0.5,
              num_val=0.1, num_test=0.2,
-             neg_sample_ratio=1.0
+             neg_sample_ratio=1.0,
+             featureless=False
              ):
 
     pre_transforms = [T.NormalizeFeatures(), ToUndirected()]
-    permute_node = PermuteNode()
-    pre_transforms.append(permute_node)
 
     # defne a function that will iterate the input over the list of pre_transforms
     def pre_transform_function(data):
@@ -165,21 +173,47 @@ def get_data(root='.', dataset_name:str = None,
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
     output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
                                                       num_test=num_test, neg_sampling_ratio=neg_sample_ratio)
-    def transform_function(data):
-        return output_random_edge_split(mask_adjacency_matrix(data))
+    permute_node = PermuteNode()
+
+    transform_functions = []
+
+    if featureless:
+        transform_functions.append(RemoveNodeFeature())
+
+    transform_functions = transform_functions + [
+        PermuteNode(),
+        mask_adjacency_matrix,
+        output_random_edge_split
+    ]
+    transforms = T.Compose(transform_functions)
+
+
+
+    transforms = T.Compose(transform_functions)
 
     # load data
     if dataset_name == 'KarateClub':
-            dataset = KarateClub(transform=transform_function)
+            dataset = KarateClub(transform=transforms)
     if dataset_name == 'Cora':
         dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transform_function,
-                            transform=transform_function)
+                            transform=transforms)
     if dataset_name == 'CiteSeer':
         dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transform_function,
-                            transform=transform_function)
+                            transform=transforms)
     if dataset_name == 'PubMed':
         dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transform_function,
-                            transform=transform_function)
+                            transform=transforms)
+    if dataset_name == 'PPI':
+        dataset = AttributedGraphDataset(root=root, name='PPI', pre_transform=pre_transform_function,
+                      transform=transforms)
+    if dataset_name == 'facebook':
+        dataset = AttributedGraphDataset(root=root, name='facebook', pre_transform=pre_transform_function,
+                      transform=transforms)
+    if dataset_name == 'Yelp':
+        dataset = CoraFull(root=root, pre_transform=pre_transform_function,
+                      transform=transforms)
+    if dataset is None:
+        raise ValueError('Dataset not found')
 
     # set shuffle to False to keep the order of the dataset otherwise
     # the split will be different for each epoch

@@ -30,8 +30,8 @@ class Encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
         self.conv1 = GCNConv(in_channels, hidden_size)
-        self.conv_mu = GCNConv(hidden_size, latent_size)
-        self.conv_logstd = GCNConv(hidden_size, latent_size)
+        self.conv_mu = GCNConv(in_channels, latent_size)
+        self.conv_logstd = GCNConv(in_channels, latent_size)
 
     def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor):
         # put x and y together in the same adjacency matrix for simplification
@@ -42,9 +42,9 @@ class Encoder(torch.nn.Module):
         completed_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # remove duplicate edges
         # completed_edge_index, _ = pyg.utils.remove_self_loops(completed_edge_index)
-        x = self.conv1(masked_x.x, completed_edge_index).relu()
-        z_mu = self.conv_mu(x, completed_edge_index)
-        z_logstd = self.conv_logstd(x, completed_edge_index)
+        # x = self.conv1(masked_x.x, completed_edge_index).relu()
+        z_mu = self.conv_mu(masked_x.x, completed_edge_index)
+        z_logstd = self.conv_logstd(masked_x.x, completed_edge_index)
         return z_mu, z_logstd
 
 class Decoder(torch.nn.Module):
@@ -87,11 +87,15 @@ class CGVAE(torch.nn.Module):
         if self.predicted_y_edge is None:
             with torch.no_grad():
                 #todo: check predict instead of sigmoid output
-                edge_label_logits= self.baseline_net(masked_x, masked_y.edge_label_index) # y_hat is initial predicted adjacency matrix
+                #todo: maybe add more prediction to get a stronger baseline
+                neg_edges = negative_sampling(masked_y.edge_index, num_nodes=masked_x.x.size(0))
+                # combined_edge_index = torch.cat((masked_y.edge_index, neg_edges), dim=1)
+                combined_edge_index = masked_y.edge_index
+                edge_label_logits= self.baseline_net(masked_x, combined_edge_index) # y_hat is initial predicted adjacency matrix
                 y_hat = torch.sigmoid(edge_label_logits)
                 # predict 0 or 1
                 y_hat = (y_hat > 0.5).bool()
-                self.predicted_y_edge = masked_y.edge_label_index[:, y_hat]
+                self.predicted_y_edge =combined_edge_index[:, y_hat]
                 # tuple to tensor
                 # predicted_y_edge = torch.stack(predicted_y_edge, dim=0)
                 # self.predicted_y_edge =  predicted_y_edge.squeeze()
@@ -213,14 +217,14 @@ def train(device,
                         neg_edge_index = negative_sampling(pos_edge_index, num_nodes=int(z.size(0) * cgvae_net.split_ratio),
                                                            num_neg_samples=int(pos_edge_index.size(1) *  neg_sample_ratio) )
                         loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index= neg_edge_index)
+                        loss = loss + regularization * (1/(input.size(0) * cgvae_net.split_ratio**2)) * cgvae_net.kl_divergence()
+
                     else:
                         z = cgvae_net(input, output_val)
                         pos_edge_index = output_val.edge_label_index[:, output_val.edge_label == 1]
                         neg_edge_index = output_val.edge_label_index[:, output_val.edge_label == 0]
                         loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index)
                     # todo: the KL need to be adjusted by size of output
-                    loss = loss + regularization * (1/(input.size(0) * cgvae_net.split_ratio**2)) * cgvae_net.kl_divergence()
-
                     if phase == 'train':
                         loss.backward()
                         optimizer.step()
