@@ -94,6 +94,16 @@ class MaskAdjacencyMatrix(BaseTransform):
 #         return self.mask_adjacency_matrix(self.to_undirected(data))
 
 
+class AddFalsePositiveEdge(BaseTransform):
+    def __init__(self, ratio=0.5):
+        super().__init__()
+        self.ratio = ratio
+
+    def forward(self, data: pyg.data.Data) -> Any:
+        pyg.utils.negative_sampling(data.edge_index, num_nodes=data.num_nodes,
+                                                      num_neg_samples=int(data.edge_index.size(1) * self.ratio))
+
+
 class PermuteNode(BaseTransform):
     def __init__(self, seed=0):
         super().__init__()
@@ -119,7 +129,8 @@ class OutputRandomEdgesSplit(BaseTransform):
         super().__init__()
         self.random_link_split = RandomLinkSplit(is_undirected=True,  key='edge_label',
                           num_val=num_val, num_test=num_test,
-                                                 neg_sampling_ratio=neg_sampling_ratio)
+                                                 neg_sampling_ratio=neg_sampling_ratio,
+                                                 add_negative_train_samples=False)
 
 
 
@@ -138,7 +149,8 @@ class OutputRandomEdgesSplit(BaseTransform):
 def get_data(root='.', dataset_name:str = None,
              mask_ratio=0.5,
              num_val=0.1, num_test=0.2,
-             neg_edge_ratio=1.0):
+             neg_sample_ratio=1.0
+             ):
 
     pre_transforms = [T.NormalizeFeatures(), ToUndirected()]
     permute_node = PermuteNode()
@@ -152,7 +164,7 @@ def get_data(root='.', dataset_name:str = None,
 
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
     output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
-                                                      num_test=num_test, neg_sampling_ratio=neg_edge_ratio)
+                                                      num_test=num_test, neg_sampling_ratio=neg_sample_ratio)
     def transform_function(data):
         return output_random_edge_split(mask_adjacency_matrix(data))
 

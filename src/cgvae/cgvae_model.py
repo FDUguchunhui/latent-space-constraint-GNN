@@ -42,9 +42,9 @@ class Encoder(torch.nn.Module):
         completed_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # remove duplicate edges
         # completed_edge_index, _ = pyg.utils.remove_self_loops(completed_edge_index)
-        hidden = self.conv1(masked_x.x, completed_edge_index).relu()
-        z_mu = self.conv_mu(hidden, completed_edge_index)
-        z_logstd = self.conv_logstd(hidden, completed_edge_index)
+        x = self.conv1(masked_x.x, completed_edge_index).relu()
+        z_mu = self.conv_mu(x, completed_edge_index)
+        z_logstd = self.conv_logstd(x, completed_edge_index)
         return z_mu, z_logstd
 
 class Decoder(torch.nn.Module):
@@ -87,7 +87,7 @@ class CGVAE(torch.nn.Module):
         if self.predicted_y_edge is None:
             with torch.no_grad():
                 #todo: check predict instead of sigmoid output
-                edge_label_logits= self.baseline_net(masked_x, masked_y.edge_index) # y_hat is initial predicted adjacency matrix
+                edge_label_logits= self.baseline_net(masked_x, masked_y.edge_label_index) # y_hat is initial predicted adjacency matrix
                 y_hat = torch.sigmoid(edge_label_logits)
                 # predict 0 or 1
                 y_hat = (y_hat > 0.5).bool()
@@ -97,10 +97,13 @@ class CGVAE(torch.nn.Module):
                 # self.predicted_y_edge =  predicted_y_edge.squeeze()
             #todo: baseline is too noise, maybe try use indirect link directly
 
+        # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
+
         self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.predicted_y_edge)
 
         # get posterior
-        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, masked_y.edge_index)
+        masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
+        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, masked_y_edge_index)
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
@@ -166,8 +169,10 @@ class CGVAE(torch.nn.Module):
         self.generation_net.eval()
         self.recognition_net.eval()
 
-def train(device, data, num_node_features,
+def train(device,
+          num_node_features,
           pre_trained_baseline_net,
+          data,
           model_path,
           out_channels=16,
           learning_rate=10e-3,
@@ -206,8 +211,8 @@ def train(device, data, num_node_features,
                         z = cgvae_net(input, output_train)
                         pos_edge_index = output_train.edge_label_index[:, output_train.edge_label == 1]
                         neg_edge_index = negative_sampling(pos_edge_index, num_nodes=int(z.size(0) * cgvae_net.split_ratio),
-                                                           num_neg_samples=int(pos_edge_index.size(1)))
-                        loss = cgvae_net.recon_loss(z, pos_edge_index)
+                                                           num_neg_samples=int(pos_edge_index.size(1) *  neg_sample_ratio) )
+                        loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index= neg_edge_index)
                     else:
                         z = cgvae_net(input, output_val)
                         pos_edge_index = output_val.edge_label_index[:, output_val.edge_label == 1]
@@ -252,10 +257,9 @@ def test( model: CGVAE, data, device='cpu'):
     model.eval()
     with torch.no_grad():
         input = data['input'].to(device)
-        # todo: problem here
         output_test = data['output']['test'].to(device)
-        z = model(input, output_test)
-        predicted_logits = model.generation_net(z, output_test.edge_label_index)
+        # todo: problem here
+        predicted_logits = model.generate(output_test.edge_label_index)  # output should be generate from latent space for test
         # predicted_logits = model.generate(output_test.edge_label_index)
         # sample from the conditional posterior and calculate AUC
         # output_edge_label = output_test.edge_label.int().cpu().numpy()

@@ -45,7 +45,7 @@ if __name__ == '__main__':
                                                              mask_ratio=args.split_ratio,
                                                              num_val=args.num_val,
                                                              num_test=args.num_test,
-                                                             neg_edge_ratio=args.neg_sample_ratio)
+                                                             neg_sample_ratio=args.neg_sample_ratio)
 
     # count run time from here
     time_start = time.time()
