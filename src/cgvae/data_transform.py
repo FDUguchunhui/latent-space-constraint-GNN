@@ -60,14 +60,10 @@ class MaskAdjacencyMatrix(BaseTransform):
         out_adj_mat[int(split_index):, : int(split_index)] = MASK_VALUE
         out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(out_adj_mat)
 
-        # sample negative edges only from the observed (non-masked) region
-        # my method is to create a temporary adjacency matrix with the same shape as the original one
-        # with the masked region set to 1 and use the negative_sampling function to sample negative edges
-        # there may be better way to do this
         temp_adj_mat = adj_mat.clone()
-        temp_adj_mat[:, int(split_index):] = 1
-        temp_adj_mat[int(split_index):, : int(split_index)] = 1
-        pos_edges_observed_out, _ = pyg.utils.dense_to_sparse(temp_adj_mat)
+        temp_adj_mat[:, int(split_index):] = 0
+        temp_adj_mat[int(split_index):, : int(split_index)] = 0
+        out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(temp_adj_mat)
         # the output is pyg.data.Data object but with additional attributes "neg_edge_index"
         out = Data(data.x, edge_index=out_edge_index, edge_weight=out_edge_weight)
         # for input only mask the bottom-right quadrant
@@ -96,6 +92,7 @@ class MaskAdjacencyMatrix(BaseTransform):
 
 
 class AddFalsePositiveEdge(BaseTransform):
+    #todo: there is a bug in this function cause AP very low
     def __init__(self, ratio=0.5, false_pos_ratio=1.0):
         super().__init__()
         self.ratio = ratio
@@ -104,7 +101,7 @@ class AddFalsePositiveEdge(BaseTransform):
     def forward(self, data: dict) -> Any:
         output = data['output']
         split_index = int(output.num_nodes * self.ratio)
-        false_pos_edge = pyg.utils.negative_sampling(output.edge_index,
+        false_pos_edge = pyg.utils.negative_sampling(data['output'].edge_index,
                                                      num_nodes=split_index,
                                                       num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
         output.edge_index = torch.cat([output.edge_index, false_pos_edge], dim=1)
@@ -163,10 +160,24 @@ class OutputRandomEdgesSplit(BaseTransform):
         # check is data has key call false_pos_edge
         if 'false_pos_edge' in data:
             # rotate 2,n  tensor output_test['edge_pos_label_index'] into  n, 2 tensor
-            edge1  = output_test['pos_edge_label_index'].transpose(0, 1)
-            egde2 = data['false_pos_edge'].transpose(0, 1)
+            # todo: fix this bug, how get edge1 that is not in edge2
+            # edge1  = output_test['pos_edge_label_index'].transpose(0, 1)
+            # edge1 = set(tuple(edge1.tolist()))
+            # edge2 = data['false_pos_edge'].transpose(0, 1)
+            # edge2 = set(tuple(edge2.tolist()))
+            # # in tuple edge1 not in edge2
+            # edge1 = edge1 - edge2
+            num_nodes = data['input'].x.size(0)
+
             # remove element in edge1 that is in edge2
-            output_test['pos_edge_label_index'] = edge1[~torch.isin(edge1, egde2).all(1)].transpose(0, 1)
+            edge1 = pyg.utils.to_dense_adj(output_test['pos_edge_label_index'],
+                                           max_num_nodes=num_nodes).squeeze()
+            edge2 = pyg.utils.to_dense_adj(data['false_pos_edge'],
+                                           max_num_nodes=num_nodes).squeeze()
+            mask  = edge1 - edge2
+            mask[mask !=1] = 0
+
+            output_test['pos_edge_label_index'], _ = pyg.utils.dense_to_sparse(mask)
             # sample remove same length of negative edges from the test data
             output_test['neg_edge_label_index'] = output_test['neg_edge_label_index'][:, output_test['pos_edge_label_index'].size(1):]
 
@@ -203,7 +214,7 @@ def get_data(root='.', dataset_name:str = None,
     ]
 
     if  add_false_pos_edge:
-        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=0.25))
+        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=1))
 
     transform_functions.append(output_random_edge_split)
     transforms = T.Compose(transform_functions)

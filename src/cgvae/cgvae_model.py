@@ -21,11 +21,6 @@ from src.cgvae.utils import MaskedReconstructionLoss
 import torch.nn.functional as F
 
 
-
-MASK_VALUE = 0
-EPS = 1e-15
-MAX_LOGSTD = 10
-
 class Encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
@@ -40,7 +35,7 @@ class Encoder(torch.nn.Module):
 
         # for prior network, the input need to be input edge + output edge
         combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
-
+        # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
         x = self.conv1(masked_x.x, combined_edge_index).relu()
         z_mu = self.conv_mu(x, combined_edge_index)
@@ -94,7 +89,11 @@ class CGVAE(torch.nn.Module):
                 edge_label_logits= self.baseline_net(masked_x, combined_edge_index) # y_hat is initial predicted adjacency matrix
                 y_hat = torch.sigmoid(edge_label_logits)
                 # predict 0 or 1
-                y_hat = (y_hat > 0.5).bool() # todo: this threshold need be adjusted with add more prediction
+                # y_hat = (y_hat > 0.5).bool() # todo: this threshold need be adjusted with add more prediction
+                # arrange y_hat by descending order and take the top 50% as the predicted edge
+                _, y_hat = y_hat.sort(descending=True)
+                y_hat = y_hat[:int(y_hat.size(0) * 1/2)]
+
                 self.predicted_y_edge =combined_edge_index[:, y_hat]
                 # tuple to tensor
                 # predicted_y_edge = torch.stack(predicted_y_edge, dim=0)

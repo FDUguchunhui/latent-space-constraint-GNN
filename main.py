@@ -29,6 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0.5)
     parser.add_argument('--add_false_pos_edge', action='store_true')
+    parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
     parser.add_argument('--seed', type=int, default=42)
@@ -46,7 +47,8 @@ if __name__ == '__main__':
                                                              num_val=args.num_val,
                                                              num_test=args.num_test,
                                                              neg_sample_ratio=args.neg_sample_ratio,
-                                                             add_false_pos_edge=args.add_false_pos_edge)
+                                                             add_false_pos_edge=args.add_false_pos_edge,
+                                                             featureless=args.featureless,)
 
     # count run time from here
     time_start = time.time()

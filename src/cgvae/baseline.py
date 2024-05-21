@@ -13,31 +13,29 @@ import torch
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
 from torch import Tensor
 from overrides import overrides
-from torch_geometric.nn import GCNConv, TransformerConv
+from torch_geometric.nn import GCNConv, TransformerConv, GIN, GENConv
 from torch_geometric.nn import InnerProductDecoder
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch_geometric as pyg
 import torch.nn.functional as F
-from src.cgvae.utils import MaskedReconstructionLoss
-
-EPS = 1e-15
-MAX_LOGSTD = 10
-
 
 #todo: fix baseline model, check whether it predicts the correct adjacency matrix
+#todo: baseline perform not good, maybe try use node task learning embedding
+# and then use the embedding to predict the edges, this way, the baseline model can
+# complete avoid false positive edges in the graph!!!!!
 class BaselineNet(pyg.nn.GAE):
 
     class GCNEncoder(torch.nn.Module):
         def __init__(self, in_channels, out_channels):
             super().__init__()
-            self.conv1 = TransformerConv(in_channels, 2 * out_channels)
+            self.conv1 = TransformerConv(in_channels, out_channels)
             self.conv2 = TransformerConv(2 * out_channels, 2 * out_channels) #todo:  add skip connection
             self.conv3 = TransformerConv(2*out_channels, out_channels)
 
         def forward(self, x, edge_index):
             x = self.conv1(x, edge_index).relu()
-            x = self.conv2(x, edge_index).relu()
+            # x = self.conv2(x, edge_index).relu()
             x = self.conv3(x, edge_index)
             return x
 
@@ -62,7 +60,10 @@ class BaselineNet(pyg.nn.GAE):
         # self.conv1 = GCNConv(in_channels=num_node_features, out_channels=hidden1_size)
         # self.conv2 = GCNConv(in_channels=hidden1_size, out_channels=hidden2_size)
         # use InnerProductDecoder to decode the graph nodes
-        encoder = self.GCNEncoder(num_node_features, out_channels)
+        # encoder = self.GCNEncoder(num_node_features, out_channels)
+        encoder = GIN(num_node_features, hidden_channels=128,
+                      out_channels=32, num_layers=2,
+                      dropout=0.3, train_eps=True)
         decoder = InnerProductDecoder()
         super().__init__(encoder=encoder, decoder=decoder)
 
@@ -149,7 +150,8 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
                     # only use input to predict the output edges with train mask
                     if phase == 'train':
                         # some problem with training baseline model
-                        z = baseline_net.encode(input.x, input.edge_index)
+                        combined_edge_index = torch.cat([output_train.pos_edge_label_index, input.edge_index], dim=1)
+                        z = baseline_net.encode(input.x, combined_edge_index)
                         split_index = int(input.x.size(0) * split_ratio)
                         # when sampling negative, we need to consider all edges
                         all_pos_edge_index = torch.concat([output_train.pos_edge_label_index, input.edge_index], dim=1)
@@ -158,7 +160,7 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
                                                            num_neg_samples=int(output_train.pos_edge_label_index.size(1) * neg_sample_ratio))
                         loss = baseline_net.recon_loss(z, output_train.pos_edge_label_index, neg_edge_index= neg_edge_index)
                     else:
-                        z = baseline_net.encode(input.x, output_val.edge_index)
+                        z = baseline_net.encode(input.x, input.edge_index)
                         loss = baseline_net.recon_loss(z, output_val.pos_edge_label_index,
                                                        neg_edge_index=output_val.neg_edge_label_index)
                         # calculate the predicted logits
