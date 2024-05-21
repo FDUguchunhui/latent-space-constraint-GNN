@@ -132,3 +132,5 @@
 {"dataset": "Cora", "split_ratio": 1.0, "seed": 44, "AUC": 0.2511, "AP": 0.0006, "execution_time": 34.97, "best_epochs": 999, "learning_rate": 0.01, "regularization": 1000.0, "neg_sample_ratio": 1.0, "add_false_pos_edge": true}
 {"dataset": "Cora", "split_ratio": 0.5, "seed": 42, "AUC": 0.7572, "AP": 0.2075, "execution_time": 35.17, "best_epochs": 919, "learning_rate": 0.01, "regularization": 1000.0, "neg_sample_ratio": 1, "add_false_pos_edge": true}
 {"dataset": "Cora", "split_ratio": 0.5, "seed": 42, "AUC": 0.6823, "AP": 0.1493, "execution_time": 34.44, "best_epochs": 908, "learning_rate": 0.01, "regularization": 1000.0, "neg_sample_ratio": 1, "add_false_pos_edge": true}
+{"dataset": "Cora", "split_ratio": 0.3, "seed": 42, "AUC": 0.7049, "AP": 0.2077, "execution_time": 32.92, "best_epochs": 752, "learning_rate": 0.01, "regularization": 1000.0, "neg_sample_ratio": 1, "add_false_pos_edge": true}
+{"dataset": "Cora", "split_ratio": 0.3, "seed": 42, "AUC": 0.6301, "AP": 0.1895, "execution_time": 35.28, "best_epochs": 851, "learning_rate": 0.01, "regularization": 1000.0, "neg_sample_ratio": 1, "add_false_pos_edge": true}

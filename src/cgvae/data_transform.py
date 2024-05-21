@@ -203,7 +203,7 @@ def get_data(root='.', dataset_name:str = None,
     ]
 
     if  add_false_pos_edge:
-        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=1))
+        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=0.25))
 
     transform_functions.append(output_random_edge_split)
     transforms = T.Compose(transform_functions)
