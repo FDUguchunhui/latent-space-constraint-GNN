@@ -8,6 +8,7 @@ from typing import Any
 import torch_geometric as pyg
 import torch_geometric.seed
 from overrides import overrides
+from torch import Tensor
 from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.data import Data
 from torch_geometric.datasets import KarateClub, AttributedGraphDataset, Yelp, AmazonProducts, Flickr, CoraFull
@@ -107,7 +108,7 @@ class AddFalsePositiveEdge(BaseTransform):
                                                      num_nodes=split_index,
                                                       num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
         output.edge_index = torch.cat([output.edge_index, false_pos_edge], dim=1)
-        return {'input': data['input'], 'output': output}
+        return {'input': data['input'], 'output': output, 'false_pos_edge': false_pos_edge}
 
 class RemoveNodeFeature(BaseTransform):
     def __init__(self, ratio=0.5):
@@ -145,9 +146,8 @@ class OutputRandomEdgesSplit(BaseTransform):
         self.random_link_split = RandomLinkSplit(is_undirected=True,  key='edge_label',
                           num_val=num_val, num_test=num_test,
                                                  neg_sampling_ratio=neg_sampling_ratio,
+                                                 split_labels=True,
                                                  add_negative_train_samples=False)
-
-
 
     def forward(self, data: Any) -> Any:
         '''
@@ -157,24 +157,35 @@ class OutputRandomEdgesSplit(BaseTransform):
         additional edge attributes for indicate its belongs to one of
         train,val, and test sets.
         '''
+
         output_train, output_val,  output_test  = self.random_link_split(data['output'])
+
+        # check is data has key call false_pos_edge
+        if 'false_pos_edge' in data:
+            # rotate 2,n  tensor output_test['edge_pos_label_index'] into  n, 2 tensor
+            edge1  = output_test['pos_edge_label_index'].transpose(0, 1)
+            egde2 = data['false_pos_edge'].transpose(0, 1)
+            # remove element in edge1 that is in edge2
+            output_test['pos_edge_label_index'] = edge1[~torch.isin(edge1, egde2).all(1)].transpose(0, 1)
+            # sample remove same length of negative edges from the test data
+            output_test['neg_edge_label_index'] = output_test['neg_edge_label_index'][:, output_test['pos_edge_label_index'].size(1):]
+
         output = {'train': output_train, 'val': output_val, 'test': output_test}
+
         return {'input': data['input'], 'output': output}
 
 def get_data(root='.', dataset_name:str = None,
              mask_ratio=0.5,
              num_val=0.1, num_test=0.2,
              neg_sample_ratio=1.0,
-             featureless=False
+             featureless=False,
+             add_false_pos_edge=False
              ):
 
-    pre_transforms = [T.NormalizeFeatures(), ToUndirected()]
+    pre_transform_functions = [T.NormalizeFeatures(), ToUndirected()]
 
     # defne a function that will iterate the input over the list of pre_transforms
-    def pre_transform_function(data):
-        for transform in pre_transforms:
-            data = transform(data)
-        return data
+    pre_transforms = T.Compose(pre_transform_functions)
 
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
     output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
@@ -189,30 +200,35 @@ def get_data(root='.', dataset_name:str = None,
     transform_functions = transform_functions + [
         PermuteNode(),
         mask_adjacency_matrix,
-        AddFalsePositiveEdge(ratio=mask_ratio),
-        output_random_edge_split
     ]
+
+    if  add_false_pos_edge:
+        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=1))
+
+    transform_functions.append(output_random_edge_split)
     transforms = T.Compose(transform_functions)
 
     if dataset_name == 'KarateClub':
-            dataset = KarateClub(transform=transforms)
+            dataset = KarateClub(transform=T.Compose(pre_transforms, transform_functions))
     if dataset_name == 'Cora':
-        dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transform_function,
+        dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transforms,
                             transform=transforms)
     if dataset_name == 'CiteSeer':
-        dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transform_function,
+        dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transforms,
                             transform=transforms)
     if dataset_name == 'PubMed':
-        dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transform_function,
+        dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transforms,
                             transform=transforms)
     if dataset_name == 'PPI':
-        dataset = AttributedGraphDataset(root=root, name='PPI', pre_transform=pre_transform_function,
+        dataset = AttributedGraphDataset(root=root, name='PPI',
+                                         pre_transform=pre_transforms,
                       transform=transforms)
     if dataset_name == 'facebook':
-        dataset = AttributedGraphDataset(root=root, name='facebook', pre_transform=pre_transform_function,
+        dataset = AttributedGraphDataset(root=root, name='facebook',
+                                         pre_transform=pre_transforms,
                       transform=transforms)
     if dataset_name == 'Yelp':
-        dataset = CoraFull(root=root, pre_transform=pre_transform_function,
+        dataset = CoraFull(root=root, pre_transform=pre_transforms,
                       transform=transforms)
     if dataset is None:
         raise ValueError('Dataset not found')

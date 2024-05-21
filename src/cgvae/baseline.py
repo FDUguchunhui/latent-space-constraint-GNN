@@ -10,6 +10,7 @@ from typing import Optional
 
 import numpy as np
 import torch
+from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
 from torch import Tensor
 from overrides import overrides
 from torch_geometric.nn import GCNConv
@@ -23,19 +24,21 @@ from src.cgvae.utils import MaskedReconstructionLoss
 EPS = 1e-15
 MAX_LOGSTD = 10
 
+
+#todo: fix baseline model, check whether it predicts the correct adjacency matrix
 class BaselineNet(pyg.nn.GAE):
 
     class GCNEncoder(torch.nn.Module):
         def __init__(self, in_channels, out_channels):
             super().__init__()
             self.conv1 = GCNConv(in_channels, 2 * out_channels)
-            self.conv2 = GCNConv(2 * out_channels, out_channels) #todo:  add skip connection
-            # self.conv3 = GCNConv(2*out_channels, out_channels)
+            # self.conv2 = GCNConv(2 * out_channels, 2 * out_channels) #todo:  add skip connection
+            self.conv3 = GCNConv(2*out_channels, out_channels)
 
         def forward(self, x, edge_index):
             x = self.conv1(x, edge_index).relu()
-            x = self.conv2(x, edge_index).relu()
-            # x = self.conv3(x, edge_index)
+            # x = self.conv2(x, edge_index).relu()
+            x = self.conv3(x, edge_index)
             return x
 
     '''
@@ -101,19 +104,18 @@ class BaselineNet(pyg.nn.GAE):
                 train against. If not given, uses negative sampling to
                 calculate negative edges. (default: :obj:`None`)
         """
-        pos_loss = -torch.log(
-            self.decoder(z, pos_edge_index, sigmoid=True) + EPS).mean()
-
-        if neg_edge_index is None:
-            neg_edge_index = negative_sampling(pos_edge_index, z.size(0))
-        neg_loss = -torch.log(1 -
-                              self.decoder(z, neg_edge_index, sigmoid=True) +
-                              EPS).mean()
-        return pos_loss + neg_loss
+        edge_index = torch.cat((pos_edge_index, neg_edge_index), dim=1)
+        logits = self.decode(z, edge_index, sigmoid=False)
+        # create target labels
+        true_labels = torch.zeros(logits.size(0), dtype=torch.float, device=logits.device)
+        true_labels[:pos_edge_index.size(1)] = 1
+        loss = F.binary_cross_entropy_with_logits(logits, true_labels, reduction='mean')
+        return loss
 
 
 def train(device, data, num_node_features, model_path, learning_rate=10e-3,
-          num_epochs=100, early_stop_patience=10, out_channels=16, neg_sample_ratio=1, split_ratio=0.5):
+          num_epochs=100, early_stop_patience=10, out_channels=16,
+          neg_sample_ratio=1, split_ratio=0.5):
     '''
     The purpose of this function is to train the baseline model for the CGVAE.
     '''
@@ -141,22 +143,32 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
             else:
                 baseline_net.eval()
 
-            with (tqdm(total=1, desc=f'NN Epoch {epoch}') as bar):
+            with tqdm(total=1, desc=f'NN Epoch {epoch}') as bar:
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     # only use input to predict the output edges with train mask
                     if phase == 'train':
-                        z = baseline_net.encode(input.x, output_train.edge_label_index)
-                        pos_edge_index = output_train.edge_label_index[:, output_train.edge_label == 1]
-                        neg_edge_index = negative_sampling(pos_edge_index,
-                                                           num_nodes=int(z.size(0) * split_ratio),
-                                                           num_neg_samples=int(pos_edge_index.size(1) * neg_sample_ratio))
-                        loss = baseline_net.recon_loss(z, pos_edge_index, neg_edge_index= neg_edge_index)
+                        # some problem with training baseline model
+                        z = baseline_net.encode(input.x, input.edge_index)
+                        split_index = int(input.x.size(0) * split_ratio)
+                        # when sampling negative, we need to consider all edges
+                        all_pos_edge_index = torch.concat([output_train.pos_edge_label_index, input.edge_index], dim=1)
+                        neg_edge_index = negative_sampling(output_train.pos_edge_label_index,
+                                                           num_nodes=split_index,
+                                                           num_neg_samples=int(output_train.pos_edge_label_index.size(1) * neg_sample_ratio))
+                        loss = baseline_net.recon_loss(z, output_train.pos_edge_label_index, neg_edge_index= neg_edge_index)
                     else:
-                        z = baseline_net.encode(input.x, output_val.edge_label_index)
-                        pos_edge_index = output_val.edge_label_index[:, output_val.edge_label == 1]
-                        neg_edge_index = output_val.edge_label_index[:, output_val.edge_label == 0]
-                        loss = baseline_net.recon_loss(z, pos_edge_index, neg_edge_index)
+                        z = baseline_net.encode(input.x, output_val.edge_index)
+                        loss = baseline_net.recon_loss(z, output_val.pos_edge_label_index,
+                                                       neg_edge_index=output_val.neg_edge_label_index)
+                        # calculate the predicted logits
+                        # predicted_logits = baseline_net.decode(z, output_val.edge_label_index, sigmoid=False)
+                        # roc_auc = roc_auc_score(output_val.edge_label, predicted_logits)
+                        # calculate average precision
+                        # precision, recall, _ = precision_recall_curve(output_val.edge_label, predicted_logits)
+                        # average_precision = average_precision_score(output_val.edge_label, predicted_logits)
+                        # print the roc_auc and average precision
+                        # print(f'ROC AUC: {roc_auc}, Average Precision: {average_precision}')
 
                     if phase == 'train':
                         loss.backward()

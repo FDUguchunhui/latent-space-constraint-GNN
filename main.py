@@ -28,9 +28,9 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', type=float, default=0.01)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0.5)
+    parser.add_argument('--add_false_pos_edge', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
-
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
@@ -45,7 +45,8 @@ if __name__ == '__main__':
                                                              mask_ratio=args.split_ratio,
                                                              num_val=args.num_val,
                                                              num_test=args.num_test,
-                                                             neg_sample_ratio=args.neg_sample_ratio)
+                                                             neg_sample_ratio=args.neg_sample_ratio,
+                                                             add_false_pos_edge=args.add_false_pos_edge)
 
     # count run time from here
     time_start = time.time()
@@ -54,12 +55,12 @@ if __name__ == '__main__':
         device='cpu',
         data=data,
         num_node_features=data['input'].x.size(1),
-        learning_rate=args.learning_rate,
+        learning_rate=args.learning_rate * 10,
         num_epochs=args.num_epochs,
         model_path=osp.join('checkpoints', str(args.seed), 'baseline_net.pth'),
         early_stop_patience=args.early_stop_patience,
         split_ratio=args.split_ratio,
-        neg_sample_ratio=args.neg_sample_ratio
+        neg_sample_ratio=args.neg_sample_ratio,
     )
 
     cgvae_net, best_epoch = cgvae.cgvae_train(
@@ -94,6 +95,7 @@ if __name__ == '__main__':
         'learning_rate': args.learning_rate,
         'regularization': args.regularization,
         'neg_sample_ratio': args.neg_sample_ratio,
+        'add_false_pos_edge': args.add_false_pos_edge,
     }
 
     # Read the existing data

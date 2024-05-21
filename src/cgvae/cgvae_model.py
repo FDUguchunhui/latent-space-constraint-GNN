@@ -38,13 +38,13 @@ class Encoder(torch.nn.Module):
         # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
         # y is the target masked graph (the complement of x)
 
+        # for prior network, the input need to be input edge + output edge
+        combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+
         # extract edge_index and edge_weight from masked_y only in the observed region
-        completed_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
-        # remove duplicate edges
-        # completed_edge_index, _ = pyg.utils.remove_self_loops(completed_edge_index)
-        x = self.conv1(masked_x.x, completed_edge_index).relu()
-        z_mu = self.conv_mu(x, completed_edge_index)
-        z_logstd = self.conv_logstd(x, completed_edge_index)
+        x = self.conv1(masked_x.x, combined_edge_index).relu()
+        z_mu = self.conv_mu(x, combined_edge_index)
+        z_logstd = self.conv_logstd(x, combined_edge_index)
         return z_mu, z_logstd
 
 class Decoder(torch.nn.Module):
@@ -94,7 +94,7 @@ class CGVAE(torch.nn.Module):
                 edge_label_logits= self.baseline_net(masked_x, combined_edge_index) # y_hat is initial predicted adjacency matrix
                 y_hat = torch.sigmoid(edge_label_logits)
                 # predict 0 or 1
-                y_hat = (y_hat > 0.5).bool()
+                y_hat = (y_hat > 0.5).bool() # todo: this threshold need be adjusted with add more prediction
                 self.predicted_y_edge =combined_edge_index[:, y_hat]
                 # tuple to tensor
                 # predicted_y_edge = torch.stack(predicted_y_edge, dim=0)
@@ -106,8 +106,9 @@ class CGVAE(torch.nn.Module):
         self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.predicted_y_edge)
 
         # get posterior
-        masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
-        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, masked_y_edge_index)
+        # masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
+        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x,
+                                                                        masked_y.edge_index)
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
@@ -215,17 +216,17 @@ def train(device,
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
                         z = cgvae_net(input, output_train)
-                        pos_edge_index = output_train.edge_label_index[:, output_train.edge_label == 1]
-                        neg_edge_index = negative_sampling(pos_edge_index, num_nodes=int(z.size(0) * cgvae_net.split_ratio),
-                                                           num_neg_samples=int(pos_edge_index.size(1) *  neg_sample_ratio) )
-                        loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index= neg_edge_index)
+                        neg_edge_index = negative_sampling(output_train.pos_edge_label_index,
+                                                           num_nodes=int(z.size(0) * cgvae_net.split_ratio),
+                                                           num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
+                        loss = cgvae_net.recon_loss(z, output_train.pos_edge_label_index,
+                                                    neg_edge_index= neg_edge_index)
                         loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
 
                     else:
                         z = cgvae_net(input, output_val)
-                        pos_edge_index = output_val.edge_label_index[:, output_val.edge_label == 1]
-                        neg_edge_index = output_val.edge_label_index[:, output_val.edge_label == 0]
-                        loss = cgvae_net.recon_loss(z, pos_edge_index, neg_edge_index)
+                        loss = cgvae_net.recon_loss(z, output_val.pos_edge_label_index,
+                                                    output_val.neg_edge_label_index)
                     # todo: the KL need to be adjusted by size of output
                     if phase == 'train':
                         loss.backward()
@@ -265,15 +266,17 @@ def test( model: CGVAE, data, device='cpu'):
         input = data['input'].to(device)
         output_test = data['output']['test'].to(device)
         # todo: problem here
-        predicted_logits = model.generate(output_test.edge_label_index)  # output should be generate from latent space for test
-        # predicted_logits = model.generate(output_test.edge_label_index)
-        # sample from the conditional posterior and calculate AUC
-        # output_edge_label = output_test.edge_label.int().cpu().numpy()
-        # pred_logits = model.generation_net(z, output_test.edge_label_index).cpu().numpy()
-        # calculate AUC for each batch for output_logits and output_labels
-        roc_auc = roc_auc_score(output_test.edge_label, predicted_logits)
+        # create edge_index by combining pos_edge_label_index and neg_edge_label_index
+        edge_label_index = torch.cat(( output_test.neg_edge_label_index,output_test.pos_edge_label_index), dim=1)
+        # create edge_label by combining pos_edge_label and neg_edge_label
+        edge_label = torch.ones(
+            edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
+        edge_label[:output_test.neg_edge_label_index.size(1)] = 0
+        predicted_logits = model.generate(edge_label_index)  # output should be generate from latent space for test
+        # calculate roc_auc
+        roc_auc = roc_auc_score(edge_label, predicted_logits)
         # calculate average precision
-        precision, recall, _ = precision_recall_curve(output_test.edge_label, predicted_logits)
-        average_precision = average_precision_score(output_test.edge_label, predicted_logits)
+        precision, recall, _ = precision_recall_curve(edge_label, predicted_logits)
+        average_precision = average_precision_score(edge_label, predicted_logits)
 
     return roc_auc, average_precision
