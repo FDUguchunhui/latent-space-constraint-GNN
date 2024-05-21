@@ -29,9 +29,9 @@ class BaselineNet(pyg.nn.GAE):
     class GCNEncoder(torch.nn.Module):
         def __init__(self, in_channels, out_channels):
             super().__init__()
-            self.conv1 = TransformerConv(in_channels, out_channels)
-            self.conv2 = TransformerConv(2 * out_channels, 2 * out_channels) #todo:  add skip connection
-            self.conv3 = TransformerConv(2*out_channels, out_channels)
+            self.conv1 = GCNConv(in_channels, 2*out_channels)
+            # self.conv2 = TransformerConv(2 * out_channels, 2 * out_channels) #todo:  add skip connection
+            self.conv3 = GCNConv(2*out_channels, out_channels)
 
         def forward(self, x, edge_index):
             x = self.conv1(x, edge_index).relu()
@@ -61,21 +61,25 @@ class BaselineNet(pyg.nn.GAE):
         # self.conv2 = GCNConv(in_channels=hidden1_size, out_channels=hidden2_size)
         # use InnerProductDecoder to decode the graph nodes
         # encoder = self.GCNEncoder(num_node_features, out_channels)
-        encoder = GIN(num_node_features, hidden_channels=128,
-                      out_channels=32, num_layers=2,
-                      dropout=0.3, train_eps=True)
+        encoder = GIN(num_node_features, hidden_channels=32,
+                      out_channels=16, num_layers=2)
+
         decoder = InnerProductDecoder()
         super().__init__(encoder=encoder, decoder=decoder)
 
     @overrides
     def forward(self, input: pyg.data.Data, output_edge_index, *args, **kwargs) -> Tensor:
-        z = self.encode(input.x, input.edge_index, input.edge_weight, **kwargs)
+        z = self.encode(input, output_edge_index, **kwargs)
         out = self.decode(z,  output_edge_index, sigmoid=False, **kwargs)
         return out # out is the entire adjacency matrix
 
     @overrides
-    def encode(self, x: Tensor, edge_index: Tensor, *args, **kwargs) -> Tensor:
-        return self.encoder(x, edge_index)
+    def encode(self, masked_x: pyg.data.Data, y_edge_index: Tensor, *args, **kwargs) -> Tensor:
+        if y_edge_index is not None:
+            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        else:
+            combined_edge_index = masked_x.edge_index
+        return self.encoder(masked_x.x, combined_edge_index)
 
     @overrides
     def decode(self, z: Tensor, edge_index: Tensor, sigmoid: bool=False, *args, **kwargs) -> Tensor:
@@ -150,19 +154,17 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
                     # only use input to predict the output edges with train mask
                     if phase == 'train':
                         # some problem with training baseline model
-                        combined_edge_index = torch.cat([output_train.pos_edge_label_index, input.edge_index], dim=1)
-                        z = baseline_net.encode(input.x, combined_edge_index)
-                        split_index = int(input.x.size(0) * split_ratio)
-                        # when sampling negative, we need to consider all edges
-                        all_pos_edge_index = torch.concat([output_train.pos_edge_label_index, input.edge_index], dim=1)
+                        z = baseline_net.encode(input, output_train.edge_index)
                         neg_edge_index = negative_sampling(output_train.pos_edge_label_index,
-                                                           num_nodes=split_index,
-                                                           num_neg_samples=int(output_train.pos_edge_label_index.size(1) * neg_sample_ratio))
-                        loss = baseline_net.recon_loss(z, output_train.pos_edge_label_index, neg_edge_index= neg_edge_index)
+                                                           num_nodes=int(z.size(0) * 0.5),
+                                                           num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
+                        loss = baseline_net.recon_loss(z, output_train.pos_edge_label_index,
+                                                    neg_edge_index= neg_edge_index)
+                        loss = loss
                     else:
-                        z = baseline_net.encode(input.x, input.edge_index)
-                        loss = baseline_net.recon_loss(z, output_val.pos_edge_label_index,
-                                                       neg_edge_index=output_val.neg_edge_label_index)
+                        z = baseline_net.encode(input, input.edge_index)
+                        loss = baseline_net.recon_loss(z, output_train.pos_edge_label_index,
+                                                       neg_edge_index=output_train.neg_edge_label_index)
                         # calculate the predicted logits
                         # predicted_logits = baseline_net.decode(z, output_val.edge_label_index, sigmoid=False)
                         # roc_auc = roc_auc_score(output_val.edge_label, predicted_logits)

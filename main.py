@@ -23,9 +23,9 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=200)
+    parser.add_argument('--num_epochs', type=int, default=300)
     parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--learning_rate', type=float, default=0.01)
+    parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0.5)
     parser.add_argument('--add_false_pos_edge', action='store_true')
@@ -60,7 +60,7 @@ if __name__ == '__main__':
         learning_rate=args.learning_rate * 10,
         num_epochs=args.num_epochs,
         model_path=osp.join('checkpoints', str(args.seed), 'baseline_net.pth'),
-        early_stop_patience=args.early_stop_patience,
+        early_stop_patience=10,
         split_ratio=args.split_ratio,
         neg_sample_ratio=args.neg_sample_ratio,
     )

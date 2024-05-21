@@ -13,7 +13,7 @@ import torch
 import torch_geometric as pyg
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
-from torch_geometric.nn import GCNConv, InnerProductDecoder
+from torch_geometric.nn import GCNConv, InnerProductDecoder, GINConv
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 from src.cgvae.baseline import BaselineNet
@@ -28,19 +28,45 @@ class Encoder(torch.nn.Module):
         self.conv_mu = GCNConv(hidden_size, latent_size)
         self.conv_logstd = GCNConv(hidden_size, latent_size)
 
-    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor):
+    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
         # put x and y together in the same adjacency matrix for simplification
         # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
         # y is the target masked graph (the complement of x)
 
         # for prior network, the input need to be input edge + output edge
-        combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        if y_edge_index is not None:
+            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        else:
+            combined_edge_index = masked_x.edge_index
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
         x = self.conv1(masked_x.x, combined_edge_index).relu()
         z_mu = self.conv_mu(x, combined_edge_index)
         z_logstd = self.conv_logstd(x, combined_edge_index)
         return z_mu, z_logstd
+
+class Encoder2(torch.nn.Module):
+    def __init__(self, in_channels, hidden_size, latent_size):
+        super().__init__()
+        # self.conv1 = GCNConv(in_channels, hidden_size)
+        self.conv_mu = GCNConv(in_channels, latent_size)
+
+    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
+        # put x and y together in the same adjacency matrix for simplification
+        # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
+        # y is the target masked graph (the complement of x)
+
+        # for prior network, the input need to be input edge + output edge
+        if y_edge_index is not None:
+            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        else:
+            combined_edge_index = masked_x.edge_index
+        # combined_edge_index =  y_edge_index
+        # extract edge_index and edge_weight from masked_y only in the observed region
+        # x = self.conv1(masked_x.x, combined_edge_index).relu()
+        z_mu = self.conv_mu(masked_x.x, combined_edge_index)
+        return z_mu
+
 
 class Decoder(torch.nn.Module):
     def __init__(self):
@@ -63,7 +89,7 @@ class CGVAE(torch.nn.Module):
         # are fed into the prior network.
         self.latent_size = latent_size
         self.baseline_net = pre_treained_baseline_net
-        self.prior_net = Encoder(in_channels, hidden_size, latent_size)
+        self.prior_net = Encoder2(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder()
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
         self.predicted_y_edge = None
@@ -83,7 +109,8 @@ class CGVAE(torch.nn.Module):
             with torch.no_grad():
                 #todo: check predict instead of sigmoid output
                 #todo: maybe add more prediction to get a stronger baseline
-                neg_edges = negative_sampling(masked_y.edge_index, num_nodes=masked_x.x.size(0))
+                neg_edges = negative_sampling(masked_y.edge_index, num_nodes=masked_x.x.size(0),
+                                              num_neg_samples=masked_y.edge_index.size(1))
                 # combined_edge_index = torch.cat((masked_y.edge_index, neg_edges), dim=1)
                 combined_edge_index = masked_y.edge_index
                 edge_label_logits= self.baseline_net(masked_x, combined_edge_index) # y_hat is initial predicted adjacency matrix
@@ -92,7 +119,7 @@ class CGVAE(torch.nn.Module):
                 # y_hat = (y_hat > 0.5).bool() # todo: this threshold need be adjusted with add more prediction
                 # arrange y_hat by descending order and take the top 50% as the predicted edge
                 _, y_hat = y_hat.sort(descending=True)
-                y_hat = y_hat[:int(y_hat.size(0) * 1/2)]
+                y_hat = y_hat[:int(y_hat.size(0) *  4/5)]
 
                 self.predicted_y_edge =combined_edge_index[:, y_hat]
                 # tuple to tensor
@@ -101,13 +128,11 @@ class CGVAE(torch.nn.Module):
             #todo: baseline is too noise, maybe try use indirect link directly
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
-
-        self.prior_mu, self.prior_logstd = self.prior_net(masked_x, self.predicted_y_edge)
+        self.prior_mu = self.prior_net(masked_x) # todo: change back
 
         # get posterior
         # masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
-        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x,
-                                                                        masked_y.edge_index)
+        self.posterior_mu, self.posterior_logstd = self.recognition_net(masked_x, masked_y.edge_index)
         z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
         return z
 
@@ -119,14 +144,12 @@ class CGVAE(torch.nn.Module):
 
     def kl_divergence(self) -> Tensor:
         posterior_variance = self.posterior_logstd.exp()**2
-        prior_variance = self.prior_logstd.exp()**2
         split_index = int(self.prior_mu.size(0) * self.split_ratio)
         #
         kl = -0.5 * torch.mean(
-            torch.sum(1 + 2 * (self.posterior_logstd[:split_index] - self.prior_logstd[:split_index])
-                      - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2) *
-                               (torch.reciprocal(prior_variance[:split_index]))
-                      - (posterior_variance[:split_index]/prior_variance[:split_index]), dim=1))
+            torch.sum(1 + 2 * (self.posterior_logstd[:split_index])
+                      - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
+                      - (posterior_variance[:split_index]), dim=1))
         return kl
 
         # return -0.5 * torch.mean(

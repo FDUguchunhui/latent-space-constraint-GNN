@@ -144,7 +144,7 @@ class OutputRandomEdgesSplit(BaseTransform):
                           num_val=num_val, num_test=num_test,
                                                  neg_sampling_ratio=neg_sampling_ratio,
                                                  split_labels=True,
-                                                 add_negative_train_samples=False)
+                                                 add_negative_train_samples=True)
 
     def forward(self, data: Any) -> Any:
         '''
@@ -179,7 +179,7 @@ class OutputRandomEdgesSplit(BaseTransform):
 
             output_test['pos_edge_label_index'], _ = pyg.utils.dense_to_sparse(mask)
             # sample remove same length of negative edges from the test data
-            output_test['neg_edge_label_index'] = output_test['neg_edge_label_index'][:, output_test['pos_edge_label_index'].size(1):]
+            output_test['neg_edge_label_index'] = output_test['neg_edge_label_index'][:output_test['pos_edge_label_index'].size(1)]
 
         output = {'train': output_train, 'val': output_val, 'test': output_test}
 
@@ -209,7 +209,7 @@ def get_data(root='.', dataset_name:str = None,
         transform_functions.append(RemoveNodeFeature())
 
     transform_functions = transform_functions + [
-        PermuteNode(),
+        # PermuteNode(),
         mask_adjacency_matrix,
     ]
 
