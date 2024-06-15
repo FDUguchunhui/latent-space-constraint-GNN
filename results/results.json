@@ -19,3 +19,4 @@
 {"dataset": "Cora", "split_ratio": 0.5, "seed": 36, "AUC": 0.5, "AP": 0.3305, "execution_time": 3.09, "best_epochs": 0, "learning_rate": 0.005, "regularization": 100000.0, "neg_sample_ratio": 1.0, "add_false_pos_edge": true}
 {"dataset": "Cora", "split_ratio": 0.5, "seed": 37, "AUC": 0.5, "AP": 0.3293, "execution_time": 2.91, "best_epochs": 0, "learning_rate": 0.005, "regularization": 100000.0, "neg_sample_ratio": 1.0, "add_false_pos_edge": true}
 {"dataset": "Cora", "split_ratio": 0.5, "seed": 38, "AUC": 0.5054, "AP": 0.3453, "execution_time": 3.52, "best_epochs": 0, "learning_rate": 0.005, "regularization": 100000.0, "neg_sample_ratio": 1.0, "add_false_pos_edge": true}
+{"dataset": "Cora", "split_ratio": 0.5, "seed": 42, "AUC": 0.6786, "AP": 0.688, "execution_time": 7.87, "best_epochs": 252, "learning_rate": 0.005, "regularization": 0.5, "neg_sample_ratio": 1, "add_false_pos_edge": false}
