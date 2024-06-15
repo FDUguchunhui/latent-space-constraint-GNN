@@ -204,3 +204,26 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
     torch.save(baseline_net.state_dict(), model_path)
 
     return baseline_net
+
+def test( model: BaselineNet, data, device='cpu'):
+    model.to(device)
+    model.eval()
+    with torch.no_grad():
+        input = data['input'].to(device)
+        output_test = data['output']['test'].to(device)
+        # todo: problem here
+        # create edge_index by combining pos_edge_label_index and neg_edge_label_index
+        edge_label_index = torch.cat((output_test.neg_edge_label_index,output_test.pos_edge_label_index), dim=1)
+        # create edge_label by combining pos_edge_label and neg_edge_label
+        edge_label = torch.ones(
+            edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
+        edge_label[:output_test.neg_edge_label_index.size(1)] = 0
+        z = model.encode(input, input.edge_index)
+        predicted_logits = model.decoder(z, edge_label_index)  # output should be generate from latent space for test
+        # calculate roc_auc
+        roc_auc = roc_auc_score(edge_label, predicted_logits)
+        # calculate average precision
+        precision, recall, _ = precision_recall_curve(edge_label, predicted_logits)
+        average_precision = average_precision_score(edge_label, predicted_logits)
+
+    return roc_auc, average_precision
