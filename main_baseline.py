@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0.5)
-    parser.add_argument('--false_pos_edge_ratio', type=float, default=1.0)
+    parser.add_argument('--false_pos_edge_ratio', type=float, default=0)
     parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
@@ -51,43 +51,17 @@ if __name__ == '__main__':
     # count run time from here
     time_start = time.time()
 
-    cgvae_net, best_epoch = cgvae.cgvae_train(
-        device=args.device,
+    baseline_net = cgvae.baseline_train(
+        device='cpu',
         data=data,
         num_node_features=data['input'].x.size(1),
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
-        model_path=osp.join('checkpoints', str(args.seed), 'cgvae_net.pth'),
+        model_path=osp.join('checkpoints', str(args.seed), 'baseline_net.pth'),
         early_stop_patience=args.early_stop_patience,
-        regularization=args.regularization,
         split_ratio=args.split_ratio,
-        neg_sample_ratio=args.neg_sample_ratio
+        neg_sample_ratio=args.neg_sample_ratio,
     )
 
-    end_time = time.time()
-    execution_time = end_time - time_start
-
-    auc, ap = cgvae.cgvae_model.test(cgvae_net, data)
+    auc, ap = cgvae.baseline.test(baseline_net, data)
     print(f'seed: {args.seed}, AUC: {auc}, AP: {ap}')
-
-    # Create a dictionary with the data you want to save
-    data = {
-        'dataset': args.dataset,
-        'split_ratio': args.split_ratio,
-        'seed': args.seed,
-        'AUC': round(auc, 4),
-        'AP': round(ap, 4),
-        'best_epochs': best_epoch,
-        'learning_rate': args.learning_rate,
-        'regularization': args.regularization,
-        'neg_sample_ratio': args.neg_sample_ratio,
-        'false_pos_edge_ratio': args.false_pos_edge_ratio,
-        'execution_time': round(execution_time, 2),
-    }
-
-    # Read the existing data
-    with open(args.results, 'a') as f:
-        f.write('\n')
-        json.dump(data, f)
-
-
