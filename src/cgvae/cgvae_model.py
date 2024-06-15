@@ -119,7 +119,7 @@ class CGVAE(torch.nn.Module):
                 # y_hat = (y_hat > 0.5).bool() # todo: this threshold need be adjusted with add more prediction
                 # arrange y_hat by descending order and take the top 50% as the predicted edge
                 _, y_hat = y_hat.sort(descending=True)
-                y_hat = y_hat[:int(y_hat.size(0) *  4/5)]
+                y_hat = y_hat[:int(y_hat.size(0) * 4/5)]
 
                 self.predicted_y_edge =combined_edge_index[:, y_hat]
                 # tuple to tensor
