@@ -1,6 +1,8 @@
 import argparse
 import subprocess
 
+import numpy as np
+
 if __name__ == '__main__':
 
     argparse.ArgumentParser()
@@ -13,20 +15,21 @@ if __name__ == '__main__':
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
     # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, 1]
     split_ratios = [0.5]
-    add_false_pos_edges = [True]
-    # regularizations = [0, 1, 10, 100]
-    regularizations = [1000, 1e4, 1e5]
+    false_pos_edge_ratios = [0.5]
+    regularizations = [0, 1, 10, 100, 1000, 1e4]
+    # regularizations = [1000]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [1000]
-    early_stop_patience = [100]
+    early_stop_patience = [np.iinfo(np.int32).max]
+    # early_stop_patience = [200]
     datasets = ['Cora']
 
     # Iterate over the choices
     for dataset in datasets:
         for split_ratio in split_ratios:
             for neg_sample_ratio in neg_sample_ratios:
-                for add_false_pos_edge in add_false_pos_edges:
+                for false_pos_edge_ratio in false_pos_edge_ratios:
                     for regularization in regularizations:
                         for i in range(3):
                             seed = args.seed + i  # Increment seed by 1 each time
@@ -34,7 +37,7 @@ if __name__ == '__main__':
                             subprocess.run(['python', 'main.py', '--split_ratio', str(split_ratio),
                                             '--neg_sample_ratio', str(neg_sample_ratio),
                                             '--dataset', dataset,
-                                            '--add_false_pos_edge' if add_false_pos_edge else '',
+                                            '--false_pos_edge_ratio', str(false_pos_edge_ratio),
                                             '--regularization', str(regularization),
                                             '--seed', str(seed),
                                             '--learning_rate', str(learning_rates[0]),

@@ -92,7 +92,7 @@ class MaskAdjacencyMatrix(BaseTransform):
 
 
 class AddFalsePositiveEdge(BaseTransform):
-    #todo: there is a bug in this function cause AP very low
+    #todo: need to keep added false positive fixed for different runs
     def __init__(self, ratio=0.5, false_pos_ratio=1.0):
         super().__init__()
         self.ratio = ratio
@@ -101,11 +101,11 @@ class AddFalsePositiveEdge(BaseTransform):
     def forward(self, data: dict) -> Any:
         output = data['output']
         split_index = int(output.num_nodes * self.ratio)
-        false_pos_edge = pyg.utils.negative_sampling(data['output'].edge_index,
-                                                     num_nodes=split_index,
-                                                      num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
-        output.edge_index = torch.cat([output.edge_index, false_pos_edge], dim=1)
-        return {'input': data['input'], 'output': output, 'false_pos_edge': false_pos_edge}
+        false_pos_edge_index = pyg.utils.negative_sampling(data['output'].edge_index,
+                                                           num_nodes=split_index,
+                                                           num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
+        output.edge_index = torch.cat([output.edge_index, false_pos_edge_index], dim=1)
+        return {'input': data['input'], 'output': output, 'false_pos_edge_index': false_pos_edge_index}
 
 class RemoveNodeFeature(BaseTransform):
     def __init__(self, ratio=0.5):
@@ -141,7 +141,7 @@ class OutputRandomEdgesSplit(BaseTransform):
     def __init__(self, num_val=0.1,  num_test=0.2, neg_sampling_ratio=1.0):
         super().__init__()
         self.random_link_split = RandomLinkSplit(is_undirected=True,  key='edge_label',
-                          num_val=num_val, num_test=num_test,
+                                                 num_val=num_val, num_test=num_test,
                                                  neg_sampling_ratio=neg_sampling_ratio,
                                                  split_labels=True,
                                                  add_negative_train_samples=True)
@@ -154,8 +154,7 @@ class OutputRandomEdgesSplit(BaseTransform):
         additional edge attributes for indicate its belongs to one of
         train,val, and test sets.
         '''
-
-        output_train, output_val,  output_test  = self.random_link_split(data['output'])
+        output_train, output_val, output_test = self.random_link_split(data['output'])
 
         # check is data has key call false_pos_edge
         if 'false_pos_edge' in data:
@@ -172,10 +171,10 @@ class OutputRandomEdgesSplit(BaseTransform):
             # remove element in edge1 that is in edge2
             edge1 = pyg.utils.to_dense_adj(output_test['pos_edge_label_index'],
                                            max_num_nodes=num_nodes).squeeze()
-            edge2 = pyg.utils.to_dense_adj(data['false_pos_edge'],
+            edge2 = pyg.utils.to_dense_adj(data['false_pos_edge_index'],
                                            max_num_nodes=num_nodes).squeeze()
-            mask  = edge1 - edge2
-            mask[mask !=1] = 0
+            mask = edge1 - edge2
+            mask[mask != 1] = 0
 
             output_test['pos_edge_label_index'], _ = pyg.utils.dense_to_sparse(mask)
             # sample remove same length of negative edges from the test data
@@ -190,8 +189,19 @@ def get_data(root='.', dataset_name:str = None,
              num_val=0.1, num_test=0.2,
              neg_sample_ratio=1.0,
              featureless=False,
-             add_false_pos_edge=False
+             false_pos_edge_ratio=1.0
              ):
+    '''
+    This function returns the dataset object with the specified transformation.
+    :param root: the root directory to store the dataset
+    :param dataset_name: the name of the dataset
+    :param mask_ratio: the ratio of the adjacency matrix to be masked
+    :param num_val: the ratio of the validation set
+    :param num_test: the ratio of the test set
+    :param neg_sample_ratio: the ratio of the negative samples
+    :param featureless: whether to remove the node features
+    :param false_pos_edge_ratio: whether to add false positive edges, None means not to add
+    '''
 
     pre_transform_functions = [T.NormalizeFeatures(), ToUndirected()]
 
@@ -200,7 +210,8 @@ def get_data(root='.', dataset_name:str = None,
 
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
     output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
-                                                      num_test=num_test, neg_sampling_ratio=neg_sample_ratio)
+                                                      num_test=num_test,
+                                                      neg_sampling_ratio=neg_sample_ratio)
     permute_node = PermuteNode()
 
     transform_functions = []
@@ -213,8 +224,8 @@ def get_data(root='.', dataset_name:str = None,
         mask_adjacency_matrix,
     ]
 
-    if  add_false_pos_edge:
-        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=1))
+    if false_pos_edge_ratio is not None and false_pos_edge_ratio > 0:
+        transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=false_pos_edge_ratio))
 
     transform_functions.append(output_random_edge_split)
     transforms = T.Compose(transform_functions)

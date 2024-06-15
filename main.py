@@ -16,8 +16,8 @@ if __name__ == '__main__':
     # dataset arguments
     parser.add_argument('--dataset', type=str, default='Cora')
     parser.add_argument('--split_ratio', type=float, default=0.5)
-    parser.add_argument('--num_val', type=float, default=0.1)
-    parser.add_argument('--num_test', type=float, default=0.2)
+    parser.add_argument('--num_val', type=float, default=0.2)
+    parser.add_argument('--num_test', type=float, default=0.3)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
     # model train arguments
     parser.add_argument('--model_path', type=str, default='model')
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0.5)
-    parser.add_argument('--add_false_pos_edge', action='store_true')
+    parser.add_argument('--false_pos_edge_ratio', type=float, default=1.0)
     parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
@@ -36,34 +36,22 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
 
-    pyg.seed.seed_everything(args.seed)
-
+    pyg.seed.seed_everything(args.seed) # fix train/val/test split, negative sampling, and false positive edges
+    # torch.manual_seed(args.seed)
     # create logger
     logging.basicConfig(level=logging.INFO)
 
     # initalize dataloader
     data = cgvae.data_transform.get_data('data/', args.dataset,
-                                                             mask_ratio=args.split_ratio,
-                                                             num_val=args.num_val,
-                                                             num_test=args.num_test,
-                                                             neg_sample_ratio=args.neg_sample_ratio,
-                                                             add_false_pos_edge=args.add_false_pos_edge,
-                                                             featureless=args.featureless,)
+                                         mask_ratio=args.split_ratio,
+                                         num_val=args.num_val,
+                                         num_test=args.num_test,
+                                         neg_sample_ratio=args.neg_sample_ratio,
+                                         false_pos_edge_ratio=args.false_pos_edge_ratio,
+                                         featureless=args.featureless, )
 
     # count run time from here
     time_start = time.time()
-
-    baseline_net = cgvae.baseline_train(
-        device='cpu',
-        data=data,
-        num_node_features=data['input'].x.size(1),
-        learning_rate=args.learning_rate * 10,
-        num_epochs=args.num_epochs,
-        model_path=osp.join('checkpoints', str(args.seed), 'baseline_net.pth'),
-        early_stop_patience=10,
-        split_ratio=args.split_ratio,
-        neg_sample_ratio=args.neg_sample_ratio,
-    )
 
     cgvae_net, best_epoch = cgvae.cgvae_train(
         device=args.device,
@@ -71,7 +59,6 @@ if __name__ == '__main__':
         num_node_features=data['input'].x.size(1),
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
-        pre_trained_baseline_net=baseline_net,
         model_path=osp.join('checkpoints', str(args.seed), 'cgvae_net.pth'),
         early_stop_patience=args.early_stop_patience,
         regularization=args.regularization,
@@ -92,12 +79,12 @@ if __name__ == '__main__':
         'seed': args.seed,
         'AUC': round(auc, 4),
         'AP': round(ap, 4),
-        'execution_time': round(execution_time, 2),
         'best_epochs': best_epoch,
         'learning_rate': args.learning_rate,
         'regularization': args.regularization,
         'neg_sample_ratio': args.neg_sample_ratio,
-        'add_false_pos_edge': args.add_false_pos_edge,
+        'false_pos_edge_ratio': args.false_pos_edge_ratio,
+        'execution_time': round(execution_time, 2),
     }
 
     # Read the existing data

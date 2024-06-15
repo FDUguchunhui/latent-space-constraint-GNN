@@ -16,7 +16,6 @@ from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder, GINConv
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
-from src.cgvae.baseline import BaselineNet
 from src.cgvae.utils import MaskedReconstructionLoss
 import torch.nn.functional as F
 
@@ -79,7 +78,7 @@ class Decoder(torch.nn.Module):
 
 class CGVAE(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_size: int,
-                 latent_size: int, pre_treained_baseline_net: BaselineNet,
+                 latent_size: int,
                  split_ratio=0.5):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
@@ -88,7 +87,6 @@ class CGVAE(torch.nn.Module):
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.latent_size = latent_size
-        self.baseline_net = pre_treained_baseline_net
         self.prior_net = Encoder2(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder()
         self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
@@ -103,29 +101,6 @@ class CGVAE(torch.nn.Module):
             return mu
 
     def forward(self, masked_x: pyg.data.Data, masked_y: pyg.data.Data):
-
-        # get prior
-        if self.predicted_y_edge is None:
-            with torch.no_grad():
-                #todo: check predict instead of sigmoid output
-                #todo: maybe add more prediction to get a stronger baseline
-                neg_edges = negative_sampling(masked_y.edge_index, num_nodes=masked_x.x.size(0),
-                                              num_neg_samples=masked_y.edge_index.size(1))
-                # combined_edge_index = torch.cat((masked_y.edge_index, neg_edges), dim=1)
-                combined_edge_index = masked_y.edge_index
-                edge_label_logits= self.baseline_net(masked_x, combined_edge_index) # y_hat is initial predicted adjacency matrix
-                y_hat = torch.sigmoid(edge_label_logits)
-                # predict 0 or 1
-                # y_hat = (y_hat > 0.5).bool() # todo: this threshold need be adjusted with add more prediction
-                # arrange y_hat by descending order and take the top 50% as the predicted edge
-                _, y_hat = y_hat.sort(descending=True)
-                y_hat = y_hat[:int(y_hat.size(0) *  4/5)]
-
-                self.predicted_y_edge =combined_edge_index[:, y_hat]
-                # tuple to tensor
-                # predicted_y_edge = torch.stack(predicted_y_edge, dim=0)
-                # self.predicted_y_edge =  predicted_y_edge.squeeze()
-            #todo: baseline is too noise, maybe try use indirect link directly
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
         self.prior_mu = self.prior_net(masked_x) # todo: change back
@@ -200,7 +175,6 @@ class CGVAE(torch.nn.Module):
 
 def train(device,
           num_node_features,
-          pre_trained_baseline_net,
           data,
           model_path,
           out_channels=16,
@@ -211,7 +185,7 @@ def train(device,
           split_ratio=0.5, neg_sample_ratio=1):
 
     cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
-                      latent_size=out_channels, pre_treained_baseline_net=pre_trained_baseline_net,
+                      latent_size=out_channels,
                       split_ratio=split_ratio)
     cgvae_net.to(device)
     # only optimize the parameters of the CGVAE
@@ -289,7 +263,7 @@ def test( model: CGVAE, data, device='cpu'):
         output_test = data['output']['test'].to(device)
         # todo: problem here
         # create edge_index by combining pos_edge_label_index and neg_edge_label_index
-        edge_label_index = torch.cat(( output_test.neg_edge_label_index,output_test.pos_edge_label_index), dim=1)
+        edge_label_index = torch.cat((output_test.neg_edge_label_index,output_test.pos_edge_label_index), dim=1)
         # create edge_label by combining pos_edge_label and neg_edge_label
         edge_label = torch.ones(
             edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
