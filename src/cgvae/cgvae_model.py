@@ -21,11 +21,12 @@ import torch.nn.functional as F
 
 
 class Encoder(torch.nn.Module):
-    def __init__(self, in_channels, hidden_size, latent_size):
+    def __init__(self, in_channels, hidden_size, latent_size, only_target_edge=False):
         super().__init__()
         self.conv1 = GCNConv(in_channels, hidden_size)
         self.conv_mu = GCNConv(hidden_size, latent_size)
         self.conv_logstd = GCNConv(hidden_size, latent_size)
+        self.only_target_edge = only_target_edge
 
     def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
         # put x and y together in the same adjacency matrix for simplification
@@ -33,10 +34,10 @@ class Encoder(torch.nn.Module):
         # y is the target masked graph (the complement of x)
 
         # for prior network, the input need to be input edge + output edge
-        if y_edge_index is not None:
-            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        if self.only_target_edge:
+            combined_edge_index = y_edge_index
         else:
-            combined_edge_index = masked_x.edge_index
+            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
         x = self.conv1(masked_x.x, combined_edge_index).relu()
@@ -79,7 +80,8 @@ class Decoder(torch.nn.Module):
 class CGVAE(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_size: int,
                  latent_size: int,
-                 split_ratio=0.5):
+                 split_ratio=0.5,
+                 only_target_edge=False):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -89,7 +91,7 @@ class CGVAE(torch.nn.Module):
         self.latent_size = latent_size
         self.prior_net = Encoder2(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder()
-        self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
+        self.recognition_net = Encoder(in_channels, hidden_size, latent_size, only_target_edge=only_target_edge)
         self.predicted_y_edge = None
         # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
@@ -182,11 +184,13 @@ def train(device,
           num_epochs=100,
           early_stop_patience=10,
           regularization=1.0,
-          split_ratio=0.5, neg_sample_ratio=1):
+          split_ratio=0.5, neg_sample_ratio=1,
+          only_target_edge=False):
 
     cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
                       latent_size=out_channels,
-                      split_ratio=split_ratio)
+                      split_ratio=split_ratio,
+                      only_target_edge=only_target_edge)
     cgvae_net.to(device)
     # only optimize the parameters of the CGVAE
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))

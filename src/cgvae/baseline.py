@@ -13,17 +13,13 @@ import torch
 from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve
 from torch import Tensor
 from overrides import overrides
-from torch_geometric.nn import GCNConv, TransformerConv, GIN, GENConv
+from torch_geometric.nn import GCNConv, TransformerConv, GIN, GENConv, GAT
 from torch_geometric.nn import InnerProductDecoder
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch_geometric as pyg
 import torch.nn.functional as F
 
-#todo: fix baseline model, check whether it predicts the correct adjacency matrix
-#todo: baseline perform not good, maybe try use node task learning embedding
-# and then use the embedding to predict the edges, this way, the baseline model can
-# complete avoid false positive edges in the graph!!!!!
 class BaselineNet(pyg.nn.GAE):
 
     class GCNEncoder(torch.nn.Module):
@@ -32,6 +28,7 @@ class BaselineNet(pyg.nn.GAE):
             self.conv1 = GCNConv(in_channels, 2*out_channels)
             # self.conv2 = TransformerConv(2 * out_channels, 2 * out_channels) #todo:  add skip connection
             self.conv3 = GCNConv(2*out_channels, out_channels)
+            # self.conv1 = GAT(in_channels, out_channels, num_layers=2)
 
         def forward(self, x, edge_index):
             x = self.conv1(x, edge_index).relu()

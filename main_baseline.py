@@ -21,12 +21,12 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=300)
+    parser.add_argument('--num_epochs', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
-    parser.add_argument('--regularization', type=float, default=0.5)
-    parser.add_argument('--false_pos_edge_ratio', type=float, default=1)
+    parser.add_argument('--regularization', type=float, default=0)
+    parser.add_argument('--false_pos_edge_ratio', type=float, default=0)
     parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')

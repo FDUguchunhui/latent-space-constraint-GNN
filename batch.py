@@ -14,15 +14,15 @@ if __name__ == '__main__':
     # Define the different split_ratio and dataset choices
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
     # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, 1]
-    split_ratios = [0.5]
-    false_pos_edge_ratios = [1]
-    regularizations = [0, 1, 10, 100, 1000, 1e4]
+    split_ratios = [0.1]
+    false_pos_edge_ratios = [0.5]
+    regularizations = [0, 1, 100, 1000, 1e4]
     # regularizations = [1000]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [1000]
-    # early_stop_patience = [np.iinfo(np.int32).max]
-    early_stop_patience = [200]
+    early_stop_patience = [np.iinfo(np.int32).max]
+    # early_stop_patience = [200]
     datasets = ['Cora']
 
     # Iterate over the choices
