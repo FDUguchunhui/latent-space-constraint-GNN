@@ -15,9 +15,9 @@ if __name__ == '__main__':
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
     # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, 1]
     split_ratios = [0.5]
-    false_pos_edge_ratios = [1]
-    regularizations = [0, 1, 10, 100, 1000, 1e4]
-    # regularizations = [1000]
+    false_pos_edge_ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
+    # regularizations = [0, 1, 10, 100, 1000, 1e4]
+    regularizations = [0, 1000]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [1000]

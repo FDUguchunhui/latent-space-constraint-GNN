@@ -122,9 +122,9 @@ class CGVAE(torch.nn.Module):
         split_index = int(self.prior_mu.size(0) * self.split_ratio)
         #
         kl = -0.5 * torch.mean(
-            torch.sum(1 + 2 * (self.posterior_logstd[:split_index])
+            torch.sum(1 +
                       - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
-                      - (posterior_variance[:split_index]), dim=1))
+                      , dim=1))
         return kl
 
         # return -0.5 * torch.mean(
@@ -216,7 +216,7 @@ def train(device,
                                                            num_nodes=int(z.size(0) * cgvae_net.split_ratio),
                                                            num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
                         loss = cgvae_net.recon_loss(z, output_train.pos_edge_label_index,
-                                                    neg_edge_index= neg_edge_index)
+                                                    neg_edge_index=neg_edge_index)
                         loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
 
                     else:
