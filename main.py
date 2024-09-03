@@ -53,7 +53,7 @@ if __name__ == '__main__':
     # count run time from here
     time_start = time.time()
 
-    cgvae_net, best_epoch = cgvae.cgvae_train(
+    cgvae_net, best_epoch, val_best_loss = cgvae.cgvae_train(
         device=args.device,
         data=data,
         num_node_features=data['input'].x.size(1),
@@ -77,14 +77,16 @@ if __name__ == '__main__':
         'dataset': args.dataset,
         'split_ratio': args.split_ratio,
         'seed': args.seed,
+        'best_epochs': best_epoch,
+        'val_best_loss': round(val_best_loss.item(), 4),
         'AUC': round(auc, 4),
         'AP': round(ap, 4),
-        'best_epochs': best_epoch,
         'learning_rate': args.learning_rate,
         'regularization': args.regularization,
         'neg_sample_ratio': args.neg_sample_ratio,
         'false_pos_edge_ratio': args.false_pos_edge_ratio,
         'execution_time': round(execution_time, 2),
+        'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
     }
 
     # Read the existing data

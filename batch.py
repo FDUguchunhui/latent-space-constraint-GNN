@@ -15,9 +15,10 @@ if __name__ == '__main__':
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
     # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, 1]
     split_ratios = [0.5]
-    false_pos_edge_ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
-    # regularizations = [0, 1, 10, 100, 1000, 1e4]
-    regularizations = [0, 1000]
+    # false_pos_edge_ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
+    false_pos_edge_ratios = [0.3]
+    regularizations = [0, 1, 10, 100, 1000, 1e4]
+    # regularizations = [1e5]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [1000]
@@ -31,7 +32,7 @@ if __name__ == '__main__':
             for neg_sample_ratio in neg_sample_ratios:
                 for false_pos_edge_ratio in false_pos_edge_ratios:
                     for regularization in regularizations:
-                        for i in range(3):
+                        for i in range(10):
                             seed = args.seed + i  # Increment seed by 1 each time
                             # Run main.py with the current split_ratio, dataset, and seed
                             subprocess.run(['python', 'main.py', '--split_ratio', str(split_ratio),

@@ -251,9 +251,9 @@ def train(device,
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(cgvae_net.state_dict(), model_path)
 
-    logging.info(f'Best epoch: {best_epoch}')
+    logging.info(f'Best epoch: {best_epoch}, best loss: {best_loss:.4f}')
 
-    return cgvae_net, best_epoch #todo: return tuple may not be good should try logger later
+    return cgvae_net, best_epoch, best_loss #todo: return tuple may not be good should try logger later
 
 def test( model: CGVAE, data, device='cpu'):
     model.to(device)
