@@ -268,7 +268,7 @@ def test( model: CGVAE, data, device='cpu'):
         edge_label = torch.ones(
             edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
         edge_label[:output_test.neg_edge_label_index.size(1)] = 0
-        predicted_logits = model.generate(edge_label_index)  # output should be generate from latent space for test
+        predicted_logits = model.generate(edge_label_index)  # output should be generated from latent space for test
         # calculate roc_auc
         roc_auc = roc_auc_score(edge_label, predicted_logits)
         # calculate average precision

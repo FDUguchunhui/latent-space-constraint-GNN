@@ -1,7 +1,29 @@
 import argparse
+import itertools
 import subprocess
 
 import numpy as np
+
+def run_experiment(params):
+    dataset, split_ratio, neg_sample_ratio, false_pos_edge_ratio, regularization, learning_rate, num_epoch, early_stop_patience, seed = params
+
+    arguments = [
+        'python', 'main.py', '--split_ratio', str(split_ratio),
+        '--neg_sample_ratio', str(neg_sample_ratio),
+        '--dataset', dataset,
+        '--false_pos_edge_ratio', str(false_pos_edge_ratio),
+        '--regularization', str(regularization),
+        '--seed', str(seed),
+        '--learning_rate', str(learning_rate),
+        '--num_epochs', str(num_epoch),
+        '--early_stop_patience', str(early_stop_patience)
+    ]
+
+    if add_input_edges_to_output:
+        arguments.append('--add_input_edges_to_output')
+
+    subprocess.run(arguments)
+    subprocess.run(['sleep', '1'])
 
 if __name__ == '__main__':
 
@@ -13,37 +35,29 @@ if __name__ == '__main__':
 
     # Define the different split_ratio and dataset choices
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
-    # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, 1]
-    split_ratios = [0.5]
-    # false_pos_edge_ratios = [0, 0.2, 0.4, 0.6, 0.8, 1]
-    false_pos_edge_ratios = [0.3]
-    regularizations = [0, 1, 10, 100, 1000, 1e4]
+    split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5]
+    false_pos_edge_ratios = [0.1, 0.3, 0.5] # percentage of true positive edges will be added for false positive edges
+    regularizations = [0, 10, 100, 1000, 1e4, 1e5]
     # regularizations = [1e5]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [1000]
     # early_stop_patience = [np.iinfo(np.int32).max]
     early_stop_patience = [200]
-    datasets = ['Cora']
+    datasets = ['PubMed']
+    add_input_edges_to_output = False
 
     # Iterate over the choices
-    for dataset in datasets:
-        for split_ratio in split_ratios:
-            for neg_sample_ratio in neg_sample_ratios:
-                for false_pos_edge_ratio in false_pos_edge_ratios:
-                    for regularization in regularizations:
-                        for i in range(10):
-                            seed = args.seed + i  # Increment seed by 1 each time
-                            # Run main.py with the current split_ratio, dataset, and seed
-                            subprocess.run(['python', 'main.py', '--split_ratio', str(split_ratio),
-                                            '--neg_sample_ratio', str(neg_sample_ratio),
-                                            '--dataset', dataset,
-                                            '--false_pos_edge_ratio', str(false_pos_edge_ratio),
-                                            '--regularization', str(regularization),
-                                            '--seed', str(seed),
-                                            '--learning_rate', str(learning_rates[0]),
-                                            '--num_epochs', str(num_epochs[0]),
-                                            '--early_stop_patience', str(early_stop_patience[0])
-                                            ])
-                            # sleep for 1 seconds
-                            subprocess.run(['sleep', '1'])
+    # Create a list of all parameter combinations
+    param_combinations = list(itertools.product(
+        datasets, split_ratios, neg_sample_ratios, false_pos_edge_ratios,
+        regularizations, learning_rates, num_epochs, early_stop_patience
+    ))
+
+    # Append seed increments for each experiment
+    experiments = [(params + (args.seed + i,)) for i in range(10) for params in param_combinations]
+
+    # Run the experiments
+    for experiment in experiments:
+        run_experiment(experiment)
+

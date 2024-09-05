@@ -15,7 +15,7 @@ from torch_geometric.datasets import KarateClub, AttributedGraphDataset, Yelp, A
 from torch_geometric.datasets import Planetoid, PPI
 from torch_geometric.datasets import GNNBenchmarkDataset
 from torch_geometric.datasets import MNISTSuperpixels
-from torch_geometric.transforms import BaseTransform, ToUndirected, AddSelfLoops, RandomLinkSplit
+from torch_geometric.transforms import BaseTransform, ToUndirected, AddSelfLoops, RandomLinkSplit, RemoveDuplicatedEdges
 from torch_geometric.data.datapipes import functional_transform
 from torch_geometric.loader import DataLoader
 import torch
@@ -138,13 +138,15 @@ class PermuteNode(BaseTransform):
 #  Random remove edges from the output subgraph
 # todo:
 class OutputRandomEdgesSplit(BaseTransform):
-    def __init__(self, num_val=0.1,  num_test=0.2, neg_sampling_ratio=1.0):
+    def __init__(self, num_val=0.1,  num_test=0.2, neg_sampling_ratio=1.0,
+                 add_input_edges_to_output=False):
         super().__init__()
         self.random_link_split = RandomLinkSplit(is_undirected=True,  key='edge_label',
                                                  num_val=num_val, num_test=num_test,
                                                  neg_sampling_ratio=neg_sampling_ratio,
                                                  split_labels=True,
                                                  add_negative_train_samples=True)
+        self.add_input_edges_to_output = add_input_edges_to_output
 
     def forward(self, data: Any) -> Any:
         '''
@@ -180,6 +182,11 @@ class OutputRandomEdgesSplit(BaseTransform):
             # sample remove same length of negative edges from the test data
             output_test['neg_edge_label_index'] = output_test['neg_edge_label_index'][:output_test['pos_edge_label_index'].size(1)]
 
+        if self.add_input_edges_to_output:
+            output_train['edge_index'] = torch.concat([output_train['edge_index'], data['input'].edge_index], dim=1)
+            output_val['edge_index'] = torch.concat([output_train['edge_index'], data['input'].edge_index], dim=1)
+            output_test['edge_index'] = torch.concat([output_train['edge_index'], data['input'].edge_index], dim=1)
+
         output = {'train': output_train, 'val': output_val, 'test': output_test}
 
         return {'input': data['input'], 'output': output}
@@ -189,7 +196,8 @@ def get_data(root='.', dataset_name:str = None,
              num_val=0.1, num_test=0.2,
              neg_sample_ratio=1.0,
              featureless=False,
-             false_pos_edge_ratio=1.0
+             false_pos_edge_ratio=1.0,
+             add_input_edges_to_output=False
              ):
     '''
     This function returns the dataset object with the specified transformation.
@@ -211,7 +219,8 @@ def get_data(root='.', dataset_name:str = None,
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
     output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
                                                       num_test=num_test,
-                                                      neg_sampling_ratio=neg_sample_ratio)
+                                                      neg_sampling_ratio=neg_sample_ratio,
+                                                      add_input_edges_to_output=add_input_edges_to_output)
     permute_node = PermuteNode()
 
     transform_functions = []

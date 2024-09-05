@@ -19,6 +19,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_val', type=float, default=0.2)
     parser.add_argument('--num_test', type=float, default=0.3)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
+    parser.add_argument('--add_input_edges_to_output', action='store_true')
     # model train arguments
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
@@ -48,7 +49,8 @@ if __name__ == '__main__':
                                          num_test=args.num_test,
                                          neg_sample_ratio=args.neg_sample_ratio,
                                          false_pos_edge_ratio=args.false_pos_edge_ratio,
-                                         featureless=args.featureless, )
+                                         add_input_edges_to_output=args.add_input_edges_to_output,
+                                         featureless=args.featureless)
 
     # count run time from here
     time_start = time.time()
@@ -85,6 +87,7 @@ if __name__ == '__main__':
         'regularization': args.regularization,
         'neg_sample_ratio': args.neg_sample_ratio,
         'false_pos_edge_ratio': args.false_pos_edge_ratio,
+        'add_input_edges_to_output': args.add_input_edges_to_output,
         'execution_time': round(execution_time, 2),
         'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
     }
@@ -95,3 +98,4 @@ if __name__ == '__main__':
         json.dump(data, f)
 
 
+#%%
