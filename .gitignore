@@ -81,3 +81,4 @@ data/*
 checkpoints/*
 documents/*
 .Rproj.user
+results/*
