@@ -60,9 +60,11 @@ class BaselineNet(pyg.nn.GAE):
         # self.conv1 = GCNConv(in_channels=num_node_features, out_channels=hidden1_size)
         # self.conv2 = GCNConv(in_channels=hidden1_size, out_channels=hidden2_size)
         # use InnerProductDecoder to decode the graph nodes
-        # encoder = self.GCNEncoder(num_node_features, out_channels)
-        encoder = GIN(num_node_features, hidden_channels=32,
-                      out_channels=16, num_layers=2)
+
+
+        encoder = self.GCNEncoder(num_node_features, out_channels)
+        # encoder = GIN(num_node_features, hidden_channels=32,
+        #               out_channels=16, num_layers=2)
 
         decoder = InnerProductDecoder()
         super().__init__(encoder=encoder, decoder=decoder)

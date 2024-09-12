@@ -125,10 +125,14 @@ class CGVAE(torch.nn.Module):
             torch.sum(1 +
                       - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
                       , dim=1))
-        return kl
 
-        # return -0.5 * torch.mean(
-        #     torch.sum(1 + 2 * self.posterior_logstd - self.posterior_mu**2 - self.posterior_logstd.exp()**2, dim=1))
+        # if variational
+        # kl = -0.5 * torch.mean(
+        #     torch.sum(1 + 2 * (self.posterior_logstd[:split_index])
+        #               - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
+        #               - (posterior_variance[:split_index]), dim=1))
+
+        return kl
 
     def recon_loss(self, z: Tensor, pos_edge_index: Tensor,
                    neg_edge_index: Optional[Tensor] = None) -> Tensor:

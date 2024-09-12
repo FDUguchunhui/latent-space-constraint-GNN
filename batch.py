@@ -35,8 +35,10 @@ if __name__ == '__main__':
 
     # Define the different split_ratio and dataset choices
     # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
-    split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5]
-    false_pos_edge_ratios = [0.1, 0.3, 0.5] # percentage of true positive edges will be added for false positive edges
+    # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5]
+    split_ratios = [0.5]
+    # false_pos_edge_ratios = [0.1, 0.3, 0.5] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0.3] # percentage of true positive edges will be added for false positive edges
     regularizations = [0, 10, 100, 1000, 1e4, 1e5]
     # regularizations = [1e5]
     neg_sample_ratios = [1]
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     num_epochs = [1000]
     # early_stop_patience = [np.iinfo(np.int32).max]
     early_stop_patience = [200]
-    datasets = ['PubMed']
+    datasets = ['Cora']
     add_input_edges_to_output = False
 
     # Iterate over the choices
