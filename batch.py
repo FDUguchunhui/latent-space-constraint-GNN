@@ -5,7 +5,8 @@ import subprocess
 import numpy as np
 
 def run_experiment(params):
-    dataset, split_ratio, neg_sample_ratio, false_pos_edge_ratio, regularization, learning_rate, num_epoch, early_stop_patience, seed = params
+    (dataset, split_ratio, neg_sample_ratio, false_pos_edge_ratio,
+     regularization, add_input_edges_to_output, out_channels, learning_rate, num_epoch, early_stop_patience, seed) = params
 
     arguments = [
         'python', 'main.py', '--split_ratio', str(split_ratio),
@@ -34,26 +35,27 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Define the different split_ratio and dataset choices
-    # split from 0.1, 0.15, 0.225, 0.3375, 0.5, 0.75, 0.875, each one roughly doubles the previous one
-    # split_ratios = [0.1, 0.15, 0.225, 0.3375, 0.5]
-    split_ratios = [0.5]
-    # false_pos_edge_ratios = [0.1, 0.3, 0.5] # percentage of true positive edges will be added for false positive edges
-    false_pos_edge_ratios = [0.3] # percentage of true positive edges will be added for false positive edges
-    regularizations = [0, 10, 100, 1000, 1e4, 1e5]
-    # regularizations = [1e5]
+    # split from 0.225 (5%), 0.3375 (10%), 0.5 (25%), 0.75, 0.875, each one roughly doubles the previous one
+    # split_ratios = [0.33, 0.5, 0.7]
+    split_ratios = [1]
+    # false_pos_edge_ratios = [0, 0.25, 0.5] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
+    # regularizations = [0, 10, 100, 1000, 1e4, 1e5]
+    regularizations = [0]
+    add_input_edges_to_output = [True]
+    out_channels = [16]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [1000]
     # early_stop_patience = [np.iinfo(np.int32).max]
     early_stop_patience = [200]
     datasets = ['Cora']
-    add_input_edges_to_output = False
 
     # Iterate over the choices
     # Create a list of all parameter combinations
     param_combinations = list(itertools.product(
         datasets, split_ratios, neg_sample_ratios, false_pos_edge_ratios,
-        regularizations, learning_rates, num_epochs, early_stop_patience
+        regularizations, add_input_edges_to_output, out_channels, learning_rates, num_epochs, early_stop_patience
     ))
 
     # Append seed increments for each experiment
@@ -63,3 +65,6 @@ if __name__ == '__main__':
     for experiment in experiments:
         run_experiment(experiment)
 
+
+
+#%%

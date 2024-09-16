@@ -22,6 +22,9 @@ import torch
 import numpy as np
 import torch_geometric.transforms as T
 
+from src.cgvae.random_graph import RandomGraph
+
+
 # @functional_transform('mask_adjacency_matrix')
 class MaskAdjacencyMatrix(BaseTransform):
     '''
@@ -160,14 +163,6 @@ class OutputRandomEdgesSplit(BaseTransform):
 
         # check is data has key call false_pos_edge
         if 'false_pos_edge' in data:
-            # rotate 2,n  tensor output_test['edge_pos_label_index'] into  n, 2 tensor
-            # todo: fix this bug, how get edge1 that is not in edge2
-            # edge1  = output_test['pos_edge_label_index'].transpose(0, 1)
-            # edge1 = set(tuple(edge1.tolist()))
-            # edge2 = data['false_pos_edge'].transpose(0, 1)
-            # edge2 = set(tuple(edge2.tolist()))
-            # # in tuple edge1 not in edge2
-            # edge1 = edge1 - edge2
             num_nodes = data['input'].x.size(0)
 
             # remove element in edge1 that is in edge2
@@ -239,8 +234,9 @@ def get_data(root='.', dataset_name:str = None,
     transform_functions.append(output_random_edge_split)
     transforms = T.Compose(transform_functions)
 
-    if dataset_name == 'KarateClub':
-            dataset = KarateClub(transform=T.Compose(pre_transforms, transform_functions))
+    if dataset_name == 'RandomGraph':
+        dataset = RandomGraph(num_nodes=2000, p=0.1, root=root, pre_transform=pre_transforms,
+                              transform=transforms)
     if dataset_name == 'Cora':
         dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transforms,
                             transform=transforms)

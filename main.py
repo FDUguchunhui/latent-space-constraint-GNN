@@ -16,8 +16,8 @@ if __name__ == '__main__':
     # dataset arguments
     parser.add_argument('--dataset', type=str, default='Cora')
     parser.add_argument('--split_ratio', type=float, default=0.5)
-    parser.add_argument('--num_val', type=float, default=0.2)
-    parser.add_argument('--num_test', type=float, default=0.3)
+    parser.add_argument('--num_val', type=float, default=0.1)
+    parser.add_argument('--num_test', type=float, default=0.2)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
     parser.add_argument('--add_input_edges_to_output', action='store_true')
     # model train arguments
@@ -59,6 +59,7 @@ if __name__ == '__main__':
         device=args.device,
         data=data,
         num_node_features=data['input'].x.size(1),
+        out_channels=args.out_channels,
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
         model_path=osp.join('checkpoints', str(args.seed), 'cgvae_net.pth'),
