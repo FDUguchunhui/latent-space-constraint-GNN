@@ -30,19 +30,19 @@ if __name__ == '__main__':
 
     argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description='batch run')
-    parser.add_argument('--seed', type=int, default=36)
+    parser.add_argument('--seed', type=int, default=40)
 
     args = parser.parse_args()
 
     # Define the different split_ratio and dataset choices
-    # split from 0.225 (5%), 0.3375 (10%), 0.5 (25%), 0.75, 0.875, each one roughly doubles the previous one
-    # split_ratios = [0.33, 0.5, 0.7]
-    split_ratios = [1]
-    # false_pos_edge_ratios = [0, 0.25, 0.5] # percentage of true positive edges will be added for false positive edges
-    false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
-    # regularizations = [0, 10, 100, 1000, 1e4, 1e5]
-    regularizations = [0]
-    add_input_edges_to_output = [True]
+    split_ratios = [0.33, 0.5, 0.7]
+    # split_ratios = [1]
+    false_pos_edge_ratios = [0, 0.1, 0.2] # percentage of true positive edges will be added for false positive edges
+    # false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
+    regularizations = [0, 10, 100, 1000, 1e4, 1e5]
+    # regularizations = [0]
+    # !!!!! check this line this should used be used to check without using regularization
+    add_input_edges_to_output = [False]
     out_channels = [16]
     neg_sample_ratios = [1]
     learning_rates = [0.005]

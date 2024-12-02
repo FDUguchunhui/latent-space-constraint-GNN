@@ -20,7 +20,7 @@ from src.cgvae.utils import MaskedReconstructionLoss
 import torch.nn.functional as F
 
 
-class Encoder(torch.nn.Module):
+class recon_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
         self.conv1 = GCNConv(in_channels, hidden_size)
@@ -33,10 +33,7 @@ class Encoder(torch.nn.Module):
         # y is the target masked graph (the complement of x)
 
         # for prior network, the input need to be input edge + output edge
-        if y_edge_index is not None:
-            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
-        else:
-            combined_edge_index = masked_x.edge_index
+        combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
         x = self.conv1(masked_x.x, combined_edge_index).relu()
@@ -44,10 +41,10 @@ class Encoder(torch.nn.Module):
         z_logstd = self.conv_logstd(x, combined_edge_index)
         return z_mu, z_logstd
 
-class Encoder2(torch.nn.Module):
+class reg_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
-        # self.conv1 = GCNConv(in_channels, hidden_size)
+        self.conv1 = GCNConv(in_channels, hidden_size)
         self.conv_mu = GCNConv(in_channels, latent_size)
 
     def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
@@ -56,14 +53,13 @@ class Encoder2(torch.nn.Module):
         # y is the target masked graph (the complement of x)
 
         # for prior network, the input need to be input edge + output edge
-        if y_edge_index is not None:
-            combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
-        else:
-            combined_edge_index = masked_x.edge_index
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
-        # x = self.conv1(masked_x.x, combined_edge_index).relu()
-        z_mu = self.conv_mu(masked_x.x, combined_edge_index)
+        # x = self.conv1(masked_x.x, masked_x.edge_index).relu()
+
+        # todo: investigate when using only one layer the performance is better
+        # try add a skip connection
+        z_mu = self.conv_mu(masked_x.x, masked_x.edge_index)
         return z_mu
 
 
@@ -87,9 +83,9 @@ class CGVAE(torch.nn.Module):
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.latent_size = latent_size
-        self.prior_net = Encoder2(in_channels, hidden_size, latent_size)
+        self.prior_net = reg_encoder(in_channels, hidden_size, latent_size)
         self.generation_net = Decoder()
-        self.recognition_net = Encoder(in_channels, hidden_size, latent_size)
+        self.recognition_net = recon_encoder(in_channels, hidden_size, latent_size)
         self.predicted_y_edge = None
         # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
