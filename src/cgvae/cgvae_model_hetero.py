@@ -6,61 +6,45 @@ Created: 2/11/24
 import copy
 import logging
 from typing import Optional
-
 import numpy as np
 from pathlib import Path
 import torch
-import torch_geometric as pyg
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
-from torch_geometric.nn import GCNConv, InnerProductDecoder, GINConv
+from torch_geometric.nn import InnerProductDecoder, to_hetero, SAGEConv
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
-from src.cgvae.utils import MaskedReconstructionLoss
 import torch.nn.functional as F
 
 
 class recon_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_size)
-        self.conv_mu = GCNConv(hidden_size, latent_size)
-        self.conv_logstd = GCNConv(hidden_size, latent_size)
+        self.conv1 = SAGEConv(in_channels, hidden_size)
+        self.conv2 = SAGEConv(hidden_size, latent_size)
 
-    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
+    def forward(self, x, edge_index):
         # put x and y together in the same adjacency matrix for simplification
         # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
         # y is the target masked graph (the complement of x)
 
         # for prior network, the input need to be input edge + output edge
-        combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
-        x = self.conv1(masked_x.x, combined_edge_index).relu()
-        z_mu = self.conv_mu(x, combined_edge_index)
-        z_logstd = self.conv_logstd(x, combined_edge_index)
-        return z_mu, z_logstd
+        x = self.conv1(x, edge_index).relu()
+        z = self.conv2(x, edge_index)
+        return z
 
 class reg_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_size)
-        self.conv_mu = GCNConv(in_channels, latent_size)
+        self.conv1 = SAGEConv(in_channels, latent_size)
 
-    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
-        # put x and y together in the same adjacency matrix for simplification
-        # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
-        # y is the target masked graph (the complement of x)
-
-        # for prior network, the input need to be input edge + output edge
-        # combined_edge_index =  y_edge_index
-        # extract edge_index and edge_weight from masked_y only in the observed region
-        # x = self.conv1(masked_x.x, masked_x.edge_index).relu()
-
+    def forward(self, x, edge_index):
         # todo: investigate when using only one layer the performance is better
         # try add a skip connection
-        z_mu = self.conv_mu(masked_x.x, masked_x.edge_index)
-        return z_mu
+        z = self.conv1(x, edge_index).relu()
+        return z
 
 
 class Decoder(torch.nn.Module):
@@ -72,10 +56,9 @@ class Decoder(torch.nn.Module):
         # return self.inner_prod_decoder.forward_all(z, sigmoid=self.sigmoid)
         return self.inner_prod_decoder(z, edge_index, sigmoid=sigmoid)
 
-class CGVAE(torch.nn.Module):
+class HeteroCGVAE(torch.nn.Module):
     def __init__(self, in_channels: int, hidden_size: int,
-                 latent_size: int,
-                 split_ratio=0.5):
+                 latent_size: int, data, target_node_type, target_edge_type):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -83,51 +66,34 @@ class CGVAE(torch.nn.Module):
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.latent_size = latent_size
+        self.reg_graph = data['train'].clone()
+        del self.reg_graph[target_edge_type]
         self.reg_net = reg_encoder(in_channels, hidden_size, latent_size)
+        self.reg_net = to_hetero(self.reg_net, self.reg_graph.metadata(), aggr='sum')
         self.generation_net = Decoder()
         self.recon_net = recon_encoder(in_channels, hidden_size, latent_size)
-        self.predicted_y_edge = None
-        # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
+        self.recon_net = to_hetero(self.recon_net, data['train'].metadata(), aggr='sum')
+        self.target_node_type = target_node_type
+        self.target_edge_type = target_edge_type
         # and standardize KL loss for the size of the output
-        self.split_ratio = split_ratio
-    def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
-        if self.training:
-            return mu + torch.randn_like(logstd) * torch.exp(logstd)
-        else:
-            return mu
+        # remove the target edge type from the regularization graph
 
-    def forward(self, masked_x: pyg.data.Data, masked_y: pyg.data.Data):
+    def forward(self, full_graph) -> Tensor:
 
-        # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
-        self.prior_mu = self.reg_net(masked_x) # todo: change back
-
-        # get posterior
-        # masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
-        self.posterior_mu, self.posterior_logstd = self.recon_net(masked_x, masked_y.edge_index)
-        z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
-        return z
+        self.prior = self.reg_net(self.reg_graph.x_dict, self.reg_graph.edge_index_dict)[self.target_node_type]
+        self.posterior = self.recon_net(full_graph.x_dict, full_graph.edge_index_dict)[self.target_node_type]
+        return self.posterior
 
     def generate(self, edge_index) -> Tensor:
         with torch.no_grad():
             # sample from the conditional posterior
-            z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
-            return self.generation_net(z, edge_index)
+            return self.generation_net(self.posterior, edge_index)
 
     def kl_divergence(self) -> Tensor:
-        posterior_variance = self.posterior_logstd.exp()**2
-        split_index = int(self.prior_mu.size(0) * self.split_ratio)
-        #
         kl = -0.5 * torch.mean(
             torch.sum(1 +
-                      - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
+                      - ((self.posterior - self.prior)**2)
                       , dim=1))
-
-        # if variational
-        # kl = -0.5 * torch.mean(
-        #     torch.sum(1 + 2 * (self.posterior_logstd[:split_index])
-        #               - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
-        #               - (posterior_variance[:split_index]), dim=1))
-
         return kl
 
     def recon_loss(self, z: Tensor, pos_edge_index: Tensor,
@@ -157,8 +123,7 @@ class CGVAE(torch.nn.Module):
         torch.save({'prior': self.reg_net.state_dict(),
                     'generation': self.generation_net.state_dict(),
                     'recognition': self.recon_net.state_dict(),
-                    'posterior_mu': self.posterior_mu,
-                    'posterior_logstd': self.posterior_logstd,
+                    'posterior': self.posterior,
                     },
                    model_path)
 
@@ -167,8 +132,7 @@ class CGVAE(torch.nn.Module):
         self.reg_net.load_state_dict(net_weights['prior'])
         self.generation_net.load_state_dict(net_weights['generation'])
         self.recon_net.load_state_dict(net_weights['recognition'])
-        self.posterior_mu = net_weights['posterior_mu']
-        self.posterior_logstd = net_weights['posterior_logstd']
+        self.posterior = net_weights['posterior']
         self.reg_net.eval()
         self.generation_net.eval()
         self.recon_net.eval()
@@ -176,18 +140,18 @@ class CGVAE(torch.nn.Module):
 def train(device,
           num_node_features,
           data,
+          target_node_type,
+          target_edge_type,
           model_path,
           out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
           early_stop_patience=10,
           regularization=1.0,
-          split_ratio=0.5, neg_sample_ratio=1):
+          neg_sample_ratio=1):
 
-    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
-                      latent_size=out_channels,
-                      split_ratio=split_ratio)
-    cgvae_net.to(device)
+    cgvae_net = HeteroCGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
+                      latent_size=out_channels, data=data, target_node_type=target_node_type, target_edge_type=target_edge_type)
     # only optimize the parameters of the CGVAE
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))
     best_loss = np.inf
@@ -195,9 +159,10 @@ def train(device,
     best_epoch = 0
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
-    input = data['input'].to(device)
-    output_train = data['output']['train'].to(device)
-    output_val = data['output']['val'].to(device)
+    train_data = data['train'].to(device)
+    # create a regularization graph by removing the target edge type
+    val_data = data['val'].to(device)
+    cgvae_net = cgvae_net.to(device)
 
     for epoch in range(num_epochs):
 
@@ -211,18 +176,18 @@ def train(device,
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
-                        z = cgvae_net(input, output_train)
-                        neg_edge_index = negative_sampling(output_train.pos_edge_label_index,
-                                                           num_nodes=int(z.size(0) * cgvae_net.split_ratio),
-                                                           num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
-                        loss = cgvae_net.recon_loss(z, output_train.pos_edge_label_index,
-                                                    neg_edge_index=neg_edge_index)
-                        loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
+                        z = cgvae_net(train_data)
+                        neg_edge_label_index = negative_sampling(train_data[target_edge_type].pos_edge_label_index,
+                                                           num_nodes=train_data[target_node_type].x.size(0),
+                                                           num_neg_samples=int(train_data[target_edge_type].pos_edge_label_index.size(1) *  neg_sample_ratio) )
+                        loss = cgvae_net.recon_loss(z, train_data[target_edge_type].pos_edge_label_index,
+                                                    neg_edge_index=neg_edge_label_index)
+                        loss = loss + regularization * (1/train_data[target_node_type].x.size(0)) * cgvae_net.kl_divergence()
 
                     else:
-                        z = cgvae_net(input, output_val)
-                        loss = cgvae_net.recon_loss(z, output_val.pos_edge_label_index,
-                                                    output_val.neg_edge_label_index)
+                        z = cgvae_net(val_data)
+                        loss = cgvae_net.recon_loss(z, val_data[target_edge_type].pos_edge_label_index,
+                                                    val_data[target_edge_type].neg_edge_label_index)
                     # todo: the KL need to be adjusted by size of output
                     if phase == 'train':
                         loss.backward()
@@ -255,19 +220,19 @@ def train(device,
 
     return cgvae_net, best_epoch, best_loss #todo: return tuple may not be good should try logger later
 
-def test( model: CGVAE, data, device='cpu'):
+def test(model, data, target_node_type, target_edge_type, device='cpu'):
+
+    test_data = data['test'].to(device)
     model.to(device)
     model.eval()
     with torch.no_grad():
-        input = data['input'].to(device)
-        output_test = data['output']['test'].to(device)
-        # todo: problem here
         # create edge_index by combining pos_edge_label_index and neg_edge_label_index
-        edge_label_index = torch.cat((output_test.neg_edge_label_index,output_test.pos_edge_label_index), dim=1)
+        edge_label_index = torch.cat((test_data[target_edge_type].neg_edge_label_index,
+                                      test_data[target_edge_type].pos_edge_label_index), dim=1)
         # create edge_label by combining pos_edge_label and neg_edge_label
         edge_label = torch.ones(
             edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
-        edge_label[:output_test.neg_edge_label_index.size(1)] = 0
+        edge_label[:test_data[target_edge_type].neg_edge_label_index.size(1)] = 0
         predicted_logits = model.generate(edge_label_index)  # output should be generated from latent space for test
         # calculate roc_auc
         roc_auc = roc_auc_score(edge_label, predicted_logits)

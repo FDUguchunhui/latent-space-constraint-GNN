@@ -20,6 +20,23 @@ from src.cgvae.utils import MaskedReconstructionLoss
 import torch.nn.functional as F
 
 
+class reg_encoder(torch.nn.Module):
+    def __init__(self, in_channels, hidden_size, latent_size):
+        super().__init__()
+        self.conv1 = GCNConv(in_channels, hidden_size)
+        self.conv_mu = GCNConv(hidden_size, latent_size)
+
+    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
+        # put x and y together in the same adjacency matrix for simplification
+        # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
+        # y is the target masked graph (the complement of x)
+
+        # combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
+        # for regularization network, the input need input part edge
+        x = self.conv1(masked_x.x, masked_x.edge_index).relu()
+        z_mu = self.conv_mu(x, masked_x.edge_index)
+        return z_mu
+
 class recon_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
@@ -34,33 +51,13 @@ class recon_encoder(torch.nn.Module):
 
         # for prior network, the input need to be input edge + output edge
         combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
-        # combined_edge_index =  y_edge_index
+
         # extract edge_index and edge_weight from masked_y only in the observed region
         x = self.conv1(masked_x.x, combined_edge_index).relu()
-        z_mu = self.conv_mu(x, combined_edge_index)
-        z_logstd = self.conv_logstd(x, combined_edge_index)
-        return z_mu, z_logstd
+        z_mu= self.conv_mu(x, combined_edge_index)
+        z_conv_logstd = self.conv_logstd(x, combined_edge_index)
 
-class reg_encoder(torch.nn.Module):
-    def __init__(self, in_channels, hidden_size, latent_size):
-        super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_size)
-        self.conv_mu = GCNConv(in_channels, latent_size)
-
-    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
-        # put x and y together in the same adjacency matrix for simplification
-        # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
-        # y is the target masked graph (the complement of x)
-
-        # for prior network, the input need to be input edge + output edge
-        # combined_edge_index =  y_edge_index
-        # extract edge_index and edge_weight from masked_y only in the observed region
-        # x = self.conv1(masked_x.x, masked_x.edge_index).relu()
-
-        # todo: investigate when using only one layer the performance is better
-        # try add a skip connection
-        z_mu = self.conv_mu(masked_x.x, masked_x.edge_index)
-        return z_mu
+        return z_mu, z_conv_logstd
 
 
 class Decoder(torch.nn.Module):
@@ -83,13 +80,14 @@ class CGVAE(torch.nn.Module):
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.latent_size = latent_size
-        self.reg_net = reg_encoder(in_channels, hidden_size, latent_size)
-        self.generation_net = Decoder()
         self.recon_net = recon_encoder(in_channels, hidden_size, latent_size)
+        self.generation_net = Decoder()
+        self.regularization_net = reg_encoder(in_channels, hidden_size, latent_size)
         self.predicted_y_edge = None
         # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
         self.split_ratio = split_ratio
+
     def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
         if self.training:
             return mu + torch.randn_like(logstd) * torch.exp(logstd)
@@ -99,28 +97,25 @@ class CGVAE(torch.nn.Module):
     def forward(self, masked_x: pyg.data.Data, masked_y: pyg.data.Data):
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
-        self.prior_mu = self.reg_net(masked_x) # todo: change back
+        self.regularization_mu = self.regularization_net(masked_x, masked_y.edge_index)
 
         # get posterior
-        # masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
-        self.posterior_mu, self.posterior_logstd = self.recon_net(masked_x, masked_y.edge_index)
-        z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
+        self.recon_mu, self.recon_logstd = self.recon_net(masked_x, masked_y.edge_index)
+        z = self.reparametrize(self.recon_mu, self.recon_logstd)
         return z
 
     def generate(self, edge_index) -> Tensor:
         with torch.no_grad():
             # sample from the conditional posterior
-            z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
+            z = self.reparametrize(self.recon_mu, self.recon_logstd)
             return self.generation_net(z, edge_index)
 
     def kl_divergence(self) -> Tensor:
-        posterior_variance = self.posterior_logstd.exp()**2
-        split_index = int(self.prior_mu.size(0) * self.split_ratio)
+        posterior_variance = self.recon_logstd.exp() ** 2
+        split_index = int(self.regularization_mu.size(0) * self.split_ratio)
         #
-        kl = -0.5 * torch.mean(
-            torch.sum(1 +
-                      - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
-                      , dim=1))
+        kl = torch.mean(
+            torch.sum(((self.recon_mu[:split_index] - self.regularization_mu[:split_index]) ** 2), dim=1))
 
         # if variational
         # kl = -0.5 * torch.mean(
@@ -154,24 +149,24 @@ class CGVAE(torch.nn.Module):
         return loss
 
     def save(self, model_path):
-        torch.save({'prior': self.reg_net.state_dict(),
+        torch.save({'prior': self.recon_net.state_dict(),
                     'generation': self.generation_net.state_dict(),
-                    'recognition': self.recon_net.state_dict(),
-                    'posterior_mu': self.posterior_mu,
-                    'posterior_logstd': self.posterior_logstd,
+                    'recognition': self.regularization_net.state_dict(),
+                    'posterior_mu': self.recon_mu,
+                    'posterior_logstd': self.recon_logstd,
                     },
                    model_path)
 
     def load(self, model_path, map_location=None):
         net_weights = torch.load(model_path, map_location=map_location)
-        self.reg_net.load_state_dict(net_weights['prior'])
+        self.recon_net.load_state_dict(net_weights['prior'])
         self.generation_net.load_state_dict(net_weights['generation'])
-        self.recon_net.load_state_dict(net_weights['recognition'])
-        self.posterior_mu = net_weights['posterior_mu']
-        self.posterior_logstd = net_weights['posterior_logstd']
-        self.reg_net.eval()
-        self.generation_net.eval()
+        self.regularization_net.load_state_dict(net_weights['recognition'])
+        self.recon_mu = net_weights['posterior_mu']
+        self.recon_logstd = net_weights['posterior_logstd']
         self.recon_net.eval()
+        self.generation_net.eval()
+        self.regularization_net.eval()
 
 def train(device,
           num_node_features,
