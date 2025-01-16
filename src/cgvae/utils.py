@@ -9,6 +9,7 @@ from torch.nn.modules.loss import _Loss
 from torch_geometric.utils import negative_sampling
 import torch_geometric as pyg
 import torch.nn.functional as F
+from torch.utils.data import DataLoader, Dataset
 
 class ResidualAdd(torch.nn.Module):
     def forward(self, x, x_residual):
@@ -32,3 +33,14 @@ class MaskedReconstructionLoss(_Loss):
         return loss
 
 
+class FullDataLoader(DataLoader):
+    def __init__(self, data, *args, **kwargs):
+        self.data = data
+        self.batch_size = 1
+        super().__init__(dataset=[], *args, **kwargs)
+
+    def __iter__(self):
+        yield self.data
+
+    def __len__(self):
+        return 1
