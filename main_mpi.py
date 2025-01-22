@@ -3,13 +3,15 @@ import torch
 import torch_geometric as pyg
 import numpy as np
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.loggers import TensorBoardLogger
+
 import  src.cgvae.cgvae_model_hetero as hetero_cgvae
 import argparse
 import logging
 import torch_geometric.transforms as T
 import pytorch_lightning as pl
 
-from src.cgvae.utils import FullDataLoader
+from src.cgvae.data.hetero_data_module import FullDataLoader, HeteroDataModule
 
 if __name__ == '__main__':
     argparse.ArgumentParser()
@@ -23,14 +25,12 @@ if __name__ == '__main__':
     parser.add_argument('--add_input_edges_to_output', action='store_true')
     # model train arguments
     parser.add_argument('--model_path', type=str, default='model')
-    parser.add_argument('--out_channels', type=int, default=16)
+    parser.add_argument('--out_channels', type=int, default=32)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--num_epochs', type=int, default=10)
     parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
-    parser.add_argument('--regularization', type=float, default=1000)
-    parser.add_argument('--false_pos_edge_ratio', type=float, default=1.0)
+    parser.add_argument('--regularization', type=float, default=5)
     parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/hetero_results.json')
@@ -43,71 +43,49 @@ if __name__ == '__main__':
     # create logger
     logging.basicConfig(level=logging.INFO)
 
-    # load dataset using pickle
-    with open('data/pyg_graph.pkl', 'rb') as f:
-        data = pickle.load(f)
+    # load test edge
 
-    transformer = T.RandomLinkSplit(
-        num_val=0.1,
-        num_test=0.1,
-        is_undirected=True,
-        neg_sampling_ratio=1.0,
-        split_labels=True,
-        add_negative_train_samples=False,
-        edge_types=("gene", "to", "gene")
+    # try to use protein-interaction from KEGG as test and STRING for training, regularization has better improvement
+    with open('data/edge_index_cooccurence.pkl', 'rb') as f:
+        test_edge_index = pickle.load(f)
+
+    dm = HeteroDataModule(
+        data_path='data/pyg_graph_with_string_data_full.pkl',
+        target_edge_type=('gene', 'to', 'gene'),
+        num_val=args.num_val,
+        num_test=args.num_test,
+        test_edge_list=test_edge_index,
+        neg_sample_ratio=args.neg_sample_ratio,
     )
 
-    train_data, val_data, test_data = transformer(data)
-    data = {}
-    data['train'] = train_data
-    data['val'] = val_data
-    data['test'] = test_data
+    dm.prepare_data()
+    dm.setup()
 
-    reg_graph = data['train'].clone()
-    del reg_graph[('gene', 'to', 'gene')]
+    # todo: add protein-interaction from kegg as reg_graph
+    # todo: option 2 add false interaction to kegg data
 
     model = hetero_cgvae.HeteroCGVAELightning(in_channels=1024,
                                               hidden_size=2 * args.out_channels,
                                               latent_size=args.out_channels,
-                                              reg_graph=reg_graph,
-                                              full_graph_metadata=data['train'].metadata(),
+                                              reg_graph=dm.reg_graph,
+                                              full_graph_metadata=dm.full_graph_metadata,
                                               target_node_type='gene',
                                               target_edge_type=('gene', 'to', 'gene'),
                                               learning_rate=args.learning_rate,
                                               regularization=args.regularization,
                                               neg_sample_ratio=args.neg_sample_ratio)
 
+
     checkpoint_callback = ModelCheckpoint(monitor='val_loss', dirpath=args.model_path, filename='best_model', save_top_k=1, mode='min')
     early_stop_callback = EarlyStopping(monitor='val_loss', patience=args.early_stop_patience, mode='min')
 
+    # create logger
+    logger = TensorBoardLogger(default_hp_metric=False, save_dir='lightning_logs')
     trainer = pl.Trainer(max_epochs=args.num_epochs,
                          callbacks=[checkpoint_callback, early_stop_callback],
                          accelerator='cpu',
+                         logger=logger,
                          # fast_dev_run=True
                          )
-    trainer.fit(model, train_dataloaders=FullDataLoader(data['train']), val_dataloaders=FullDataLoader(data['val']))
-    trainer.test(model, dataloaders=FullDataLoader(data['test']))
-
-    # # Create a dictionary with the data you want to save
-    # data = {
-    #     'dataset': args.dataset,
-    #     'split_ratio': args.split_ratio,
-    #     'seed': args.seed,
-    #     'best_epochs': best_epoch,
-    #     'val_best_loss': round(val_best_loss.item(), 4),
-    #     'AUC': round(auc, 4),
-    #     'AP': round(ap, 4),
-    #     'learning_rate': args.learning_rate,
-    #     'regularization': args.regularization,
-    #     'neg_sample_ratio': args.neg_sample_ratio,
-    #     'false_pos_edge_ratio': args.false_pos_edge_ratio,
-    #     'add_input_edges_to_output': args.add_input_edges_to_output,
-    #     'execution_time': round(execution_time, 2),
-    #     'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-    # }
-
-    # # Read the existing data
-    # with open(args.results, 'a') as f:
-    #     f.write('\n')
-    #     json.dump(data, f)
-
+    trainer.fit(model, datamodule=dm)
+    trainer.test(model, datamodule=dm)

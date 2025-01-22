@@ -9,6 +9,7 @@ from typing import Optional
 import numpy as np
 from pathlib import Path
 import torch
+from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
 from torch_geometric.nn import InnerProductDecoder, to_hetero, SAGEConv
@@ -22,6 +23,7 @@ class recon_encoder(torch.nn.Module):
         super().__init__()
         self.conv1 = SAGEConv(in_channels, hidden_size)
         self.conv2 = SAGEConv(hidden_size, latent_size)
+        self.lin1 = torch.nn.Linear(in_channels, hidden_size)
 
     def forward(self, x, edge_index):
         # put x and y together in the same adjacency matrix for simplification
@@ -31,19 +33,21 @@ class recon_encoder(torch.nn.Module):
         # for prior network, the input need to be input edge + output edge
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
-        x = self.conv1(x, edge_index).relu()
-        z = self.conv2(x, edge_index)
+        z = self.conv1(x, edge_index).relu()
+        z = self.conv2(z, edge_index)
         return z
 
 class reg_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = SAGEConv(in_channels, latent_size)
+        self.conv1 = SAGEConv(in_channels, hidden_size)
+        self.conv2 = SAGEConv(hidden_size, latent_size)
 
     def forward(self, x, edge_index):
         # todo: investigate when using only one layer the performance is better
         # try add a skip connection
         z = self.conv1(x, edge_index).relu()
+        z = self.conv2(z, edge_index)
         return z
 
 
@@ -66,7 +70,7 @@ class HeteroCGVAELightning(pl.LightningModule):
         # network pθ(y|x, z). Also, CGVAE is built on top of the baselineNet: not only
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['full_graph_metadata', 'reg_graph'])
         self.reg_graph = reg_graph
         self.reg_net = reg_encoder(in_channels, hidden_size, latent_size)
         self.reg_net = to_hetero(self.reg_net, self.reg_graph.metadata(), aggr='sum')
@@ -80,6 +84,10 @@ class HeteroCGVAELightning(pl.LightningModule):
         self.posterior = self.recon_net(full_graph.x_dict, full_graph.edge_index_dict)[self.hparams.target_node_type]
         return self.posterior
 
+    def on_train_start(self) -> None:
+       self.logger.log_hyperparams(self.hparams, {"val_roc_auc": 0, "test_roc_auc": 0})
+
+
     def training_step(self, batch, batch_idx):
         z = self(batch)
         neg_edge_label_index = negative_sampling(batch[self.hparams.target_edge_type].pos_edge_label_index,
@@ -89,12 +97,23 @@ class HeteroCGVAELightning(pl.LightningModule):
                                 neg_edge_index=neg_edge_label_index)
         loss = loss + self.hparams.regularization * (1/batch[self.hparams.target_node_type].x.size(0)) * self.reg_loss()
         self.log('train_loss', loss, on_epoch=True, batch_size=1, prog_bar=True)
+
+
         return loss
 
     def validation_step(self, batch, batch_idx):
         z = self(batch)
         loss = self.recon_loss(z, batch[self.hparams.target_edge_type].pos_edge_label_index, batch[self.hparams.target_edge_type].neg_edge_label_index)
-        self.log('val_loss', loss, on_epoch=True, batch_size=1, prog_bar=True)
+        edge_label_index = torch.cat((batch[self.hparams.target_edge_type].neg_edge_label_index,
+                                      batch[self.hparams.target_edge_type].pos_edge_label_index), dim=1)
+        # create edge_label by combining pos_edge_label and neg_edge_label
+        edge_label = torch.ones(edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
+        edge_label[:batch[self.hparams.target_edge_type].neg_edge_label_index.size(1)] = 0
+        predicted_logits = self.generate(edge_label_index)  # output should be generated from latent space for test
+        # calculate roc_auc
+        roc_auc = roc_auc_score(edge_label, predicted_logits)
+        values = {'val_loss': loss, 'val_roc_auc': roc_auc}
+        self.log_dict(values, on_epoch=True, batch_size=1, prog_bar=True)
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -109,9 +128,10 @@ class HeteroCGVAELightning(pl.LightningModule):
         predicted_logits = self.generate(edge_label_index)  # output should be generated from latent space for test
         # calculate roc_auc
         roc_auc = roc_auc_score(edge_label, predicted_logits)
-        values = {'test_loss': loss, 'roc_auc': roc_auc}
+        values = {'test_loss': loss, 'test_roc_auc': roc_auc}
         self.log_dict(values, batch_size=1,  prog_bar=True)
-        return loss, roc_auc
+        return loss
+
 
     def configure_optimizers(self):
         return torch.optim.Adam(lr=self.hparams.learning_rate, params=self.parameters())
