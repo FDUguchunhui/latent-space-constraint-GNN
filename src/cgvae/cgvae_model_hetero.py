@@ -96,7 +96,7 @@ class HeteroCGVAELightning(pl.LightningModule):
         loss = self.recon_loss(z, batch[self.hparams.target_edge_type].pos_edge_label_index,
                                 neg_edge_index=neg_edge_label_index)
         loss = loss + self.hparams.regularization * (1/batch[self.hparams.target_node_type].x.size(0)) * self.reg_loss()
-        self.log('train_loss', loss, on_epoch=True, batch_size=1, prog_bar=True)
+        self.log('train_loss', loss, on_step=False, on_epoch=True, batch_size=1, prog_bar=True)
 
 
         return loss
