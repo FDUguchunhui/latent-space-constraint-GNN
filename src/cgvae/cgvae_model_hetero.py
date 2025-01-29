@@ -19,11 +19,10 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 
 class recon_encoder(torch.nn.Module):
-    def __init__(self, in_channels, hidden_size, latent_size):
+    def __init__(self, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = SAGEConv(in_channels, hidden_size)
-        self.conv2 = SAGEConv(hidden_size, latent_size)
-        self.lin1 = torch.nn.Linear(in_channels, hidden_size)
+        self.conv1 = SAGEConv((-1, -1), hidden_size)
+        self.conv2 = SAGEConv((-1, -1), latent_size)
 
     def forward(self, x, edge_index):
         # put x and y together in the same adjacency matrix for simplification
@@ -38,10 +37,10 @@ class recon_encoder(torch.nn.Module):
         return z
 
 class reg_encoder(torch.nn.Module):
-    def __init__(self, in_channels, hidden_size, latent_size):
+    def __init__(self, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = SAGEConv(in_channels, hidden_size)
-        self.conv2 = SAGEConv(hidden_size, latent_size)
+        self.conv1 = SAGEConv((-1, -1), hidden_size)
+        self.conv2 = SAGEConv((-1, -1), latent_size)
 
     def forward(self, x, edge_index):
         # todo: investigate when using only one layer the performance is better
@@ -61,9 +60,9 @@ class Decoder(torch.nn.Module):
         return self.inner_prod_decoder(z, edge_index, sigmoid=sigmoid)
 
 class HeteroCGVAELightning(pl.LightningModule):
-    def __init__(self, in_channels: int, hidden_size: int,
+    def __init__(self, hidden_size: int,
                  latent_size: int, reg_graph, full_graph_metadata, neg_sample_ratio,
-                 target_node_type, regularization, target_edge_type, learning_rate):
+                 target_node_type, regularization, target_edge_type, learning_rate, seed):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -72,11 +71,12 @@ class HeteroCGVAELightning(pl.LightningModule):
         # are fed into the prior network.
         self.save_hyperparameters(ignore=['full_graph_metadata', 'reg_graph'])
         self.reg_graph = reg_graph
-        self.reg_net = reg_encoder(in_channels, hidden_size, latent_size)
+        self.reg_net = reg_encoder(hidden_size, latent_size)
         self.reg_net = to_hetero(self.reg_net, self.reg_graph.metadata(), aggr='sum')
         self.generation_net = Decoder()
-        self.recon_net = recon_encoder(in_channels, hidden_size, latent_size)
+        self.recon_net = recon_encoder(hidden_size, latent_size)
         self.recon_net = to_hetero(self.recon_net, full_graph_metadata, aggr='sum')
+        self.best_val_loss = float('inf')
 
     def forward(self, full_graph) -> Tensor:
 
@@ -84,9 +84,9 @@ class HeteroCGVAELightning(pl.LightningModule):
         self.posterior = self.recon_net(full_graph.x_dict, full_graph.edge_index_dict)[self.hparams.target_node_type]
         return self.posterior
 
-    def on_train_start(self) -> None:
-       self.logger.log_hyperparams(self.hparams, {"val_roc_auc": 0, "test_roc_auc": 0})
-
+    def on_fit_start(self) -> None:
+       pl.seed_everything(self.hparams.seed)
+       self.logger.log_hyperparams(self.hparams, {"val_loss": 0, "best_val_loss": 0, "test_roc_auc": 0})
 
     def training_step(self, batch, batch_idx):
         z = self(batch)
@@ -113,8 +113,10 @@ class HeteroCGVAELightning(pl.LightningModule):
         # calculate roc_auc
         roc_auc = roc_auc_score(edge_label, predicted_logits)
         values = {'val_loss': loss, 'val_roc_auc': roc_auc}
+        if loss is not None and loss < self.best_val_loss:
+            self.best_val_loss = loss
         self.log_dict(values, on_epoch=True, batch_size=1, prog_bar=True)
-        return loss
+        return loss, roc_auc
 
     def test_step(self, batch, batch_idx):
         z = self(batch)
@@ -128,9 +130,9 @@ class HeteroCGVAELightning(pl.LightningModule):
         predicted_logits = self.generate(edge_label_index)  # output should be generated from latent space for test
         # calculate roc_auc
         roc_auc = roc_auc_score(edge_label, predicted_logits)
-        values = {'test_loss': loss, 'test_roc_auc': roc_auc}
+        values = {'test_loss': loss, 'test_roc_auc': roc_auc, 'best_val_loss': self.best_val_loss}
         self.log_dict(values, batch_size=1,  prog_bar=True)
-        return loss
+        return loss, roc_auc
 
 
     def configure_optimizers(self):

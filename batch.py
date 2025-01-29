@@ -37,7 +37,7 @@ if __name__ == '__main__':
     # Define the different split_ratio and dataset choices
     split_ratios = [0.33, 0.5, 0.7]
     # split_ratios = [1]
-    false_pos_edge_ratios = [0, 0.1, 0.2] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
     # false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
     regularizations = [0, 10, 100, 1000, 1e4, 1e5]
     # regularizations = [0]
