@@ -35,20 +35,20 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Define the different split_ratio and dataset choices
-    split_ratios = [0.33, 0.5, 0.7]
+    split_ratios = [0.7]
     # split_ratios = [1]
-    false_pos_edge_ratios = [0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
     # false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
-    regularizations = [0, 10, 100, 1000, 1e4, 1e5]
+    regularizations = [0, 10, 100, 1000, 1500, 2000]
     # regularizations = [0]
     # !!!!! check this line this should used be used to check without using regularization
     add_input_edges_to_output = [False]
     out_channels = [16]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
-    num_epochs = [1000]
+    num_epochs = [300]
     # early_stop_patience = [np.iinfo(np.int32).max]
-    early_stop_patience = [200]
+    early_stop_patience = [1000]
     datasets = ['Cora']
 
     # Iterate over the choices
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     ))
 
     # Append seed increments for each experiment
-    experiments = [(params + (args.seed + i,)) for i in range(10) for params in param_combinations]
+    experiments = [(params + (args.seed + i,)) for i in range(1) for params in param_combinations]
 
     # Run the experiments
     for experiment in experiments:
