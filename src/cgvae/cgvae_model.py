@@ -24,6 +24,7 @@ class recon_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
         self.conv1 = GCNConv(in_channels, hidden_size)
+        self.lin1 = torch.nn.Linear(in_channels, hidden_size)
         self.conv_mu = GCNConv(hidden_size, latent_size)
         self.conv_logstd = GCNConv(hidden_size, latent_size)
 
@@ -36,7 +37,7 @@ class recon_encoder(torch.nn.Module):
         combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
-        x = self.conv1(masked_x.x, combined_edge_index).relu()
+        x = self.conv1(masked_x.x, combined_edge_index).relu() + self.lin1(masked_x.x)
         z_mu = self.conv_mu(x, combined_edge_index)
         z_logstd = self.conv_logstd(x, combined_edge_index)
         return z_mu, z_logstd
@@ -44,8 +45,9 @@ class recon_encoder(torch.nn.Module):
 class reg_encoder(torch.nn.Module):
     def __init__(self, in_channels, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_size)
+        # self.conv1 = GCNConv(in_channels, hidden_size)
         self.conv_mu = GCNConv(in_channels, latent_size)
+
 
     def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
         # put x and y together in the same adjacency matrix for simplification
@@ -117,9 +119,8 @@ class CGVAE(torch.nn.Module):
         posterior_variance = self.posterior_logstd.exp()**2
         split_index = int(self.prior_mu.size(0) * self.split_ratio)
         #
-        kl = -0.5 * torch.mean(
-            torch.sum(1 +
-                      - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
+        kl =  torch.mean(
+            torch.mean(((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
                       , dim=1))
 
         # if variational
@@ -217,7 +218,7 @@ def train(device,
                                                            num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
                         loss = cgvae_net.recon_loss(z, output_train.pos_edge_label_index,
                                                     neg_edge_index=neg_edge_index)
-                        loss = loss + regularization * (1/input.size(0)) * cgvae_net.kl_divergence()
+                        loss = loss + regularization *  cgvae_net.kl_divergence()
 
                     else:
                         z = cgvae_net(input, output_val)

@@ -37,7 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
 
-    pyg.seed.seed_everything(args.seed) # fix train/val/test split, negative sampling, and false positive edges
+    pyg.seed.seed_everything(38) # fix train/val/test split, negative sampling, and false positive edges
     # torch.manual_seed(args.seed)
     # create logger
     logging.basicConfig(level=logging.INFO)
@@ -55,6 +55,7 @@ if __name__ == '__main__':
     # count run time from here
     time_start = time.time()
 
+    pyg.seed.seed_everything(args.seed)
     cgvae_net, best_epoch, val_best_loss = cgvae.cgvae_train(
         device=args.device,
         data=data,

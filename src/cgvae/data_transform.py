@@ -108,7 +108,7 @@ class AddFalsePositiveEdge(BaseTransform):
                                                            num_nodes=split_index,
                                                            num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
         output.edge_index = torch.cat([output.edge_index, false_pos_edge_index], dim=1)
-        return {'input': data['input'], 'output': output, 'false_pos_edge_index': false_pos_edge_index}
+        return {'input': data['input'], 'output': output}
 
 class RemoveNodeFeature(BaseTransform):
     def __init__(self, ratio=0.5):
@@ -160,22 +160,6 @@ class OutputRandomEdgesSplit(BaseTransform):
         train,val, and test sets.
         '''
         output_train, output_val, output_test = self.random_link_split(data['output'])
-
-        # check is data has key call false_pos_edge
-        if 'false_pos_edge' in data:
-            num_nodes = data['input'].x.size(0)
-
-            # remove element in edge1 that is in edge2
-            edge1 = pyg.utils.to_dense_adj(output_test['pos_edge_label_index'],
-                                           max_num_nodes=num_nodes).squeeze()
-            edge2 = pyg.utils.to_dense_adj(data['false_pos_edge_index'],
-                                           max_num_nodes=num_nodes).squeeze()
-            mask = edge1 - edge2
-            mask[mask != 1] = 0
-
-            output_test['pos_edge_label_index'], _ = pyg.utils.dense_to_sparse(mask)
-            # sample remove same length of negative edges from the test data
-            output_test['neg_edge_label_index'] = output_test['neg_edge_label_index'][:output_test['pos_edge_label_index'].size(1)]
 
         if self.add_input_edges_to_output:
             output_train['edge_index'] = torch.concat([output_train['edge_index'], data['input'].edge_index], dim=1)

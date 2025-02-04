@@ -40,13 +40,13 @@ class reg_encoder(torch.nn.Module):
     def __init__(self, hidden_size, latent_size):
         super().__init__()
         self.conv1 = SAGEConv((-1, -1), hidden_size)
-        self.conv2 = SAGEConv((-1, -1), latent_size)
+        # self.conv2 = SAGEConv((-1, -1), latent_size)
 
     def forward(self, x, edge_index):
         # todo: investigate when using only one layer the performance is better
         # try add a skip connection
-        z = self.conv1(x, edge_index).relu()
-        z = self.conv2(z, edge_index)
+        z = self.conv1(x, edge_index)
+        # z = self.conv2(z, edge_index)
         return z
 
 
