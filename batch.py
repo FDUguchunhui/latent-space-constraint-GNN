@@ -38,7 +38,7 @@ if __name__ == '__main__':
     split_ratios = [0.7]
     # split_ratios = [1]
     # false_pos_edge_ratios = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
-    false_pos_edge_ratios = [0.1] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0.25] # percentage of true positive edges will be added for false positive edges
     # false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
     regularizations = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     # regularizations = [6]
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     num_epochs = [1000]
     # early_stop_patience = [np.iinfo(np.int32).max]
     early_stop_patience = [1000]
-    datasets = ['Cora']
+    datasets = ['CiteSeer']
 
     # Iterate over the choices
     # Create a list of all parameter combinations

@@ -6,7 +6,7 @@ import torch
 import torch_geometric as pyg
 import numpy as np
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 from omegaconf import DictConfig
 import  src.cgvae.cgvae_model_hetero as hetero_cgvae
 import pytorch_lightning as pl
@@ -23,6 +23,8 @@ def main(cfg: DictConfig):
     with open('data/edge_index_KEGG.pkl', 'rb') as f:
         test_edge_index = pickle.load(f)
 
+
+    # try to remove PPI from kegg data
     dm = HeteroDataModule(
         data_path= 'data/pyg_graph_with_string_data_cooccurence.pkl',
         target_node_type='gene',
@@ -31,8 +33,9 @@ def main(cfg: DictConfig):
         num_test=cfg.dataset.num_test,
         test_edge_list=test_edge_index,
         neg_sample_ratio=cfg.dataset.neg_sample_ratio,
+        batch_size=cfg.train.batch_size,
         # only_keep_target=True,
-        add_noisy_edges=0
+        # add_noisy_edges=0.2
     )
 
     dm.prepare_data()
@@ -44,8 +47,9 @@ def main(cfg: DictConfig):
     model = hetero_cgvae.HeteroCGVAELightning(
                                               hidden_size=2 * cfg.model.out_channels,
                                               latent_size=cfg.model.out_channels,
-                                              reg_graph=dm.reg_graph,
+                                              reg_graph=dm.reg_graph_metadata,
                                               full_graph_metadata=dm.full_graph_metadata,
+                                              reg_graph_metadata=dm.reg_graph_metadata,
                                               target_node_type='gene',
                                               target_edge_type=('gene', 'to', 'gene'),
                                               learning_rate=cfg.train.learning_rate,
@@ -58,7 +62,9 @@ def main(cfg: DictConfig):
     early_stop_callback = EarlyStopping(monitor='val_loss', patience=cfg.train.early_stop_patience, mode='min')
 
     # create logger
-    logger = TensorBoardLogger(default_hp_metric=False, save_dir='lightning_logs', name=cfg.other.log_dir)
+    # logger = TensorBoardLogger(default_hp_metric=False, save_dir='lightning_logs', name=cfg.other.log_dir)
+    logger = MLFlowLogger(experiment_name="lightning_logs", run_name=cfg.other.log_dir, tracking_uri="file:./ml-runs")
+    logger.log_hyperparams({"seed": cfg.other.seed})
 
     trainer = pl.Trainer(max_epochs=cfg.train.num_epochs,
                          callbacks=[checkpoint_callback, early_stop_callback],
