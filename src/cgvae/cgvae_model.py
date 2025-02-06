@@ -147,8 +147,6 @@ def train(device,
     # only optimize the parameters of the CGVAE
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))
     best_loss = np.inf
-    early_stop_count = 0
-    best_epoch = 0
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     input = data['input'].to(device)
@@ -173,7 +171,7 @@ def train(device,
                                                            num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
                         loss = cgvae_net.recon_loss(z, output_train.pos_edge_label_index,
                                                     neg_edge_index=neg_edge_index)
-                        loss = loss + regularization *  cgvae_net.kl_divergence()
+                        loss = loss + regularization * cgvae_net.kl_divergence()
 
                     else:
                         z = cgvae_net(input, output_val)
@@ -185,31 +183,15 @@ def train(device,
                         optimizer.step()
 
                 epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
-                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss),
-                                early_stop_count=early_stop_count)
+                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss))
 
-                if phase == 'val':
-                    if epoch_loss < best_loss:
-                        best_loss = epoch_loss
-                        best_epoch = epoch
-                        best_model_wts = copy.deepcopy(cgvae_net.state_dict())
-                        early_stop_count = 0
-                    else:
-                        early_stop_count += 1
-
-        if early_stop_count >= early_stop_patience:
-            break
-
-    cgvae_net.load_state_dict(best_model_wts)
     cgvae_net.eval()
 
     # save the final model
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(cgvae_net.state_dict(), model_path)
 
-    logging.info(f'Best epoch: {best_epoch}, best loss: {best_loss:.4f}')
-
-    return cgvae_net, best_epoch, best_loss #todo: return tuple may not be good should try logger later
+    return cgvae_net,  epoch_loss  #todo: return tuple may not be good should try logger later
 
 def test( model: CGVAE, data, device='cpu'):
     model.to(device)

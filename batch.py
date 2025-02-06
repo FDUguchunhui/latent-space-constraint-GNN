@@ -6,7 +6,7 @@ import numpy as np
 
 def run_experiment(params):
     (dataset, split_ratio, neg_sample_ratio, false_pos_edge_ratio,
-     regularization, add_input_edges_to_output, out_channels, learning_rate, num_epoch, early_stop_patience, seed) = params
+     regularization, add_input_edges_to_output, out_channels, learning_rate, num_epoch, seed) = params
 
     arguments = [
         'python', 'main.py', '--split_ratio', str(split_ratio),
@@ -16,8 +16,7 @@ def run_experiment(params):
         '--regularization', str(regularization),
         '--seed', str(seed),
         '--learning_rate', str(learning_rate),
-        '--num_epochs', str(num_epoch),
-        '--early_stop_patience', str(early_stop_patience)
+        '--num_epochs', str(num_epoch)
     ]
 
     if add_input_edges_to_output:
@@ -35,28 +34,27 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Define the different split_ratio and dataset choices
-    split_ratios = [0.9]
+    split_ratios = [0.7]
     # split_ratios = [1]
     # false_pos_edge_ratios = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
-    false_pos_edge_ratios = [0.25] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0.2] # percentage of true positive edges will be added for false positive edges
     # false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
     regularizations = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    # regularizations = [0.3]
     # regularizations = [6]
     # !!!!! check this line this should used be used to check without using regularization
     add_input_edges_to_output = [False]
     out_channels = [16]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
-    num_epochs = [1000]
-    # early_stop_patience = [np.iinfo(np.int32).max]
-    early_stop_patience = [1000]
-    datasets = ['CiteSeer']
+    num_epochs = [300]
+    datasets = ['PubMed']
 
     # Iterate over the choices
     # Create a list of all parameter combinations
     param_combinations = list(itertools.product(
         datasets, split_ratios, neg_sample_ratios, false_pos_edge_ratios,
-        regularizations, add_input_edges_to_output, out_channels, learning_rates, num_epochs, early_stop_patience
+        regularizations, add_input_edges_to_output, out_channels, learning_rates, num_epochs
     ))
 
     # Append seed increments for each experiment

@@ -18,19 +18,18 @@ if __name__ == '__main__':
     # dataset arguments
     parser.add_argument('--dataset', type=str, default='Cora')
     parser.add_argument('--split_ratio', type=float, default=0.7)
-    parser.add_argument('--num_val', type=float, default=0.1)
-    parser.add_argument('--num_test', type=float, default=0.2)
+    parser.add_argument('--num_val', type=float, default=0.2)
+    parser.add_argument('--num_test', type=float, default=0.3)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
     parser.add_argument('--add_input_edges_to_output', action='store_true')
     # model train arguments
     parser.add_argument('--layer_type', type=str, default='GCNConv')
     parser.add_argument('--model_path', type=str, default='model')
-    parser.add_argument('--out_channels', type=int, default=16)
+    parser.add_argument('--out_channels', type=int, default=32)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=1000)
+    parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.005)
-    parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
     parser.add_argument('--regularization', type=float, default=0)
     parser.add_argument('--false_pos_edge_ratio', type=float, default=0.1)
     parser.add_argument('--featureless', action='store_true')
@@ -70,7 +69,7 @@ if __name__ == '__main__':
     reg_encoder = RegEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
     recon_encoder = ReconEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
 
-    cgvae_net, best_epoch, val_best_loss = cgvae.cgvae_train(
+    cgvae_net, val_loss = cgvae.cgvae_train(
         device=args.device,
         data=data,
         reg_encoder=reg_encoder,
@@ -79,7 +78,6 @@ if __name__ == '__main__':
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
         model_path=osp.join('checkpoints', str(args.seed), 'cgvae_net.pth'),
-        early_stop_patience=args.early_stop_patience,
         regularization=args.regularization,
         split_ratio=args.split_ratio,
         neg_sample_ratio=args.neg_sample_ratio
@@ -96,8 +94,7 @@ if __name__ == '__main__':
         'dataset': args.dataset,
         'split_ratio': args.split_ratio,
         'seed': args.seed,
-        'best_epochs': best_epoch,
-        'val_best_loss': round(val_best_loss.item(), 4),
+        'val_loss': round(val_loss.item(), 4),
         'AUC': round(auc, 4),
         'AP': round(ap, 4),
         'learning_rate': args.learning_rate,
