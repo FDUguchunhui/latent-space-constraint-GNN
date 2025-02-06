@@ -63,8 +63,8 @@ class Decoder(torch.nn.Module):
 
 class HeteroCGVAELightning(pl.LightningModule):
     def __init__(self, hidden_size: int,
-                 latent_size: int, reg_graph, full_graph_metadata, reg_graph_metadata, neg_sample_ratio,
-                 target_node_type, regularization, target_edge_type, learning_rate, seed):
+                 latent_size: int, full_graph_metadata, reg_graph_metadata, neg_sample_ratio,
+                 target_node_type, regularization, target_edge_type, learning_rate):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -87,10 +87,8 @@ class HeteroCGVAELightning(pl.LightningModule):
         self.posterior = self.recon_net(data.x_dict, data.edge_index_dict)[self.hparams.target_node_type]
         return self.posterior
 
-    def on_fit_start(self) -> None:
-        pl.seed_everything(self.hparams.seed)
-        self.logger.log_hyperparams(self.hparams)
-        self.logger.log_hyperparams({"val_loss": 0, "best_val_loss": 0, "test_roc_auc": 0})
+    # def on_fit_start(self) -> None:
+    #     self.logger.log_hyperparams(self.hparams)
 
     def training_step(self, batch, batch_idx):
         z = self(batch)
@@ -140,6 +138,7 @@ class HeteroCGVAELightning(pl.LightningModule):
         self.log('test_roc_auc', roc_auc, on_epoch=True, prog_bar=True)
         # Reset the metric for the next epoch
         self.test_roc_auc.reset()
+
 
     def configure_optimizers(self):
         return torch.optim.Adam(lr=self.hparams.learning_rate, params=self.parameters())

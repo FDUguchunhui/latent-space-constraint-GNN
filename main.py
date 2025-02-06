@@ -1,35 +1,38 @@
-import copy
 import time
 import json
 import torch
 import torch_geometric as pyg
 import numpy as np
-import torch_geometric.loader
+from torch_geometric.nn import GCNConv, SAGEConv, GATConv
+
 import  src.cgvae as cgvae
 import argparse
 import os.path as osp
 import logging
+
+from src.cgvae.encoder.encoder import ReconEncoder, RegEncoder
 
 if __name__ == '__main__':
     argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description='CGVAE')
     # dataset arguments
     parser.add_argument('--dataset', type=str, default='Cora')
-    parser.add_argument('--split_ratio', type=float, default=0.5)
+    parser.add_argument('--split_ratio', type=float, default=0.7)
     parser.add_argument('--num_val', type=float, default=0.1)
     parser.add_argument('--num_test', type=float, default=0.2)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
     parser.add_argument('--add_input_edges_to_output', action='store_true')
     # model train arguments
+    parser.add_argument('--layer_type', type=str, default='GCNConv')
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=16)
     # training arguments
-    parser.add_argument('--num_epochs', type=int, default=300)
+    parser.add_argument('--num_epochs', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--early_stop_patience', type=int, default=np.Inf)
-    parser.add_argument('--regularization', type=float, default=0.5)
-    parser.add_argument('--false_pos_edge_ratio', type=float, default=1.0)
+    parser.add_argument('--regularization', type=float, default=0)
+    parser.add_argument('--false_pos_edge_ratio', type=float, default=0.1)
     parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
@@ -56,10 +59,22 @@ if __name__ == '__main__':
     time_start = time.time()
 
     pyg.seed.seed_everything(args.seed)
+
+    if args.layer_type =='GCNConv':
+        conv_layer = GCNConv
+    elif args.layer_type == 'SAGEConv':
+        conv_layer = SAGEConv
+    else:
+        conv_layer = GATConv
+
+    reg_encoder = RegEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
+    recon_encoder = ReconEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
+
     cgvae_net, best_epoch, val_best_loss = cgvae.cgvae_train(
         device=args.device,
         data=data,
-        num_node_features=data['input'].x.size(1),
+        reg_encoder=reg_encoder,
+        recon_encoder=recon_encoder,
         out_channels=args.out_channels,
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,

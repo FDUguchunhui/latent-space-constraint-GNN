@@ -13,56 +13,11 @@ import torch
 import torch_geometric as pyg
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
-from torch_geometric.nn import GCNConv, InnerProductDecoder, GINConv
+from torch_geometric.nn import InnerProductDecoder
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
-from src.cgvae.utils import MaskedReconstructionLoss
+
 import torch.nn.functional as F
-
-
-class recon_encoder(torch.nn.Module):
-    def __init__(self, in_channels, hidden_size, latent_size):
-        super().__init__()
-        self.conv1 = GCNConv(in_channels, hidden_size)
-        self.lin1 = torch.nn.Linear(in_channels, hidden_size)
-        self.conv_mu = GCNConv(hidden_size, latent_size)
-        self.conv_logstd = GCNConv(hidden_size, latent_size)
-
-    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
-        # put x and y together in the same adjacency matrix for simplification
-        # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
-        # y is the target masked graph (the complement of x)
-
-        # for prior network, the input need to be input edge + output edge
-        combined_edge_index = torch.cat((masked_x.edge_index, y_edge_index), dim=1)
-        # combined_edge_index =  y_edge_index
-        # extract edge_index and edge_weight from masked_y only in the observed region
-        x = self.conv1(masked_x.x, combined_edge_index).relu() + self.lin1(masked_x.x)
-        z_mu = self.conv_mu(x, combined_edge_index)
-        z_logstd = self.conv_logstd(x, combined_edge_index)
-        return z_mu, z_logstd
-
-class reg_encoder(torch.nn.Module):
-    def __init__(self, in_channels, hidden_size, latent_size):
-        super().__init__()
-        # self.conv1 = GCNConv(in_channels, hidden_size)
-        self.conv_mu = GCNConv(in_channels, latent_size)
-
-
-    def forward(self, masked_x: pyg.data.Data, y_edge_index: Tensor=None):
-        # put x and y together in the same adjacency matrix for simplification
-        # x is the input masked graph (with some edges masked and those masked edges are revealed in y),
-        # y is the target masked graph (the complement of x)
-
-        # for prior network, the input need to be input edge + output edge
-        # combined_edge_index =  y_edge_index
-        # extract edge_index and edge_weight from masked_y only in the observed region
-        # x = self.conv1(masked_x.x, masked_x.edge_index).relu()
-
-        # todo: investigate when using only one layer the performance is better
-        # try add a skip connection
-        z_mu = self.conv_mu(masked_x.x, masked_x.edge_index)
-        return z_mu
 
 
 class Decoder(torch.nn.Module):
@@ -75,9 +30,7 @@ class Decoder(torch.nn.Module):
         return self.inner_prod_decoder(z, edge_index, sigmoid=sigmoid)
 
 class CGVAE(torch.nn.Module):
-    def __init__(self, in_channels: int, hidden_size: int,
-                 latent_size: int,
-                 split_ratio=0.5):
+    def __init__(self, reg_encoder, recon_encoder, latent_size: int, split_ratio=0.5):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -85,9 +38,9 @@ class CGVAE(torch.nn.Module):
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.latent_size = latent_size
-        self.reg_net = reg_encoder(in_channels, hidden_size, latent_size)
+        self.reg_net = reg_encoder
         self.generation_net = Decoder()
-        self.recon_net = recon_encoder(in_channels, hidden_size, latent_size)
+        self.recon_net = recon_encoder
         self.predicted_y_edge = None
         # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
@@ -175,9 +128,10 @@ class CGVAE(torch.nn.Module):
         self.recon_net.eval()
 
 def train(device,
-          num_node_features,
           data,
           model_path,
+          reg_encoder,
+          recon_encoder,
           out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
@@ -185,7 +139,8 @@ def train(device,
           regularization=1.0,
           split_ratio=0.5, neg_sample_ratio=1):
 
-    cgvae_net = CGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
+    cgvae_net = CGVAE(reg_encoder=reg_encoder,
+                        recon_encoder=recon_encoder,
                       latent_size=out_channels,
                       split_ratio=split_ratio)
     cgvae_net.to(device)
