@@ -20,17 +20,9 @@ from tqdm import tqdm
 import torch.nn.functional as F
 
 
-class Decoder(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.inner_prod_decoder = InnerProductDecoder()
-
-    def forward(self, z, edge_index: Tensor, sigmoid=False):
-        # return self.inner_prod_decoder.forward_all(z, sigmoid=self.sigmoid)
-        return self.inner_prod_decoder(z, edge_index, sigmoid=sigmoid)
 
 class CGVAE(torch.nn.Module):
-    def __init__(self, reg_encoder, recon_encoder, latent_size: int, split_ratio=0.5):
+    def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int, split_ratio=0.5):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -39,37 +31,27 @@ class CGVAE(torch.nn.Module):
         # are fed into the prior network.
         self.latent_size = latent_size
         self.reg_net = reg_encoder
-        self.generation_net = Decoder()
+        self.generation_net = classifer
         self.recon_net = recon_encoder
         self.predicted_y_edge = None
         # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
         self.split_ratio = split_ratio
-    def reparametrize(self, mu: Tensor, logstd: Tensor) -> Tensor:
-        if self.training:
-            return mu + torch.randn_like(logstd) * torch.exp(logstd)
-        else:
-            return mu
 
     def forward(self, masked_x: pyg.data.Data, masked_y: pyg.data.Data):
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
         self.prior_mu = self.reg_net(masked_x) # todo: change back
 
-        # get posterior
-        # masked_y_edge_index = torch.cat((masked_y.edge_index, self.predicted_y_edge), dim=1)
-        self.posterior_mu, self.posterior_logstd = self.recon_net(masked_x, masked_y.edge_index)
-        z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
-        return z
+        self.posterior_mu = self.recon_net(masked_x, masked_y.edge_index)
+        return self.posterior_mu
 
     def generate(self, edge_index) -> Tensor:
         with torch.no_grad():
             # sample from the conditional posterior
-            z = self.reparametrize(self.posterior_mu, self.posterior_logstd)
-            return self.generation_net(z, edge_index)
+            return self.generation_net(self.posterior_mu)
 
     def kl_divergence(self) -> Tensor:
-        posterior_variance = self.posterior_logstd.exp()**2
         split_index = int(self.prior_mu.size(0) * self.split_ratio)
         #
         kl =  torch.mean(
@@ -84,27 +66,9 @@ class CGVAE(torch.nn.Module):
 
         return kl
 
-    def recon_loss(self, z: Tensor, pos_edge_index: Tensor,
-                   neg_edge_index: Optional[Tensor] = None) -> Tensor:
-        r"""Given latent variables :obj:`z`, computes the binary cross
-        entropy loss for positive edges :obj:`pos_edge_index` and negative
-        sampled edges.
-
-        Args:
-            z (torch.Tensor): The latent space :math:`\mathbf{Z}`.
-            pos_edge_index (torch.Tensor): The positive edges to train against.
-            neg_edge_index (torch.Tensor, optional): The negative edges to
-                train against. If not given, uses negative sampling to
-                calculate negative edges. (default: :obj:`None`)
-        """
-
-        # concatenate positive and negative edges
-        edge_index = torch.cat((pos_edge_index, neg_edge_index), dim=1)
-        logits = self.generation_net(z, edge_index, sigmoid=False)
-        # create target labels
-        true_labels = torch.zeros(logits.size(0), dtype=torch.float, device=logits.device)
-        true_labels[:pos_edge_index.size(1)] = 1
-        loss = F.binary_cross_entropy_with_logits(logits, true_labels, reduction='mean')
+    def recon_loss(self, z: Tensor, labels) -> Tensor:
+        logits = self.generation_net(z)
+        loss = F.cross_entropy(logits, labels)
         return loss
 
     def save(self, model_path):
@@ -112,7 +76,6 @@ class CGVAE(torch.nn.Module):
                     'generation': self.generation_net.state_dict(),
                     'recognition': self.recon_net.state_dict(),
                     'posterior_mu': self.posterior_mu,
-                    'posterior_logstd': self.posterior_logstd,
                     },
                    model_path)
 
@@ -122,7 +85,6 @@ class CGVAE(torch.nn.Module):
         self.generation_net.load_state_dict(net_weights['generation'])
         self.recon_net.load_state_dict(net_weights['recognition'])
         self.posterior_mu = net_weights['posterior_mu']
-        self.posterior_logstd = net_weights['posterior_logstd']
         self.reg_net.eval()
         self.generation_net.eval()
         self.recon_net.eval()
@@ -130,6 +92,7 @@ class CGVAE(torch.nn.Module):
 def train(device,
           data,
           model_path,
+          classifer,
           reg_encoder,
           recon_encoder,
           out_channels=16,
@@ -140,6 +103,7 @@ def train(device,
           split_ratio=0.5, neg_sample_ratio=1):
 
     cgvae_net = CGVAE(reg_encoder=reg_encoder,
+                      classifer=classifer,
                         recon_encoder=recon_encoder,
                       latent_size=out_channels,
                       split_ratio=split_ratio)
@@ -150,8 +114,7 @@ def train(device,
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     input = data['input'].to(device)
-    output_train = data['output']['train'].to(device)
-    output_val = data['output']['val'].to(device)
+    output = data['output'].to(device)
 
     for epoch in range(num_epochs):
 
@@ -165,18 +128,13 @@ def train(device,
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
-                        z = cgvae_net(input, output_train)
-                        neg_edge_index = negative_sampling(output_train.pos_edge_label_index,
-                                                           num_nodes=int(z.size(0) * cgvae_net.split_ratio),
-                                                           num_neg_samples=int(output_train.pos_edge_label_index.size(1) *  neg_sample_ratio) )
-                        loss = cgvae_net.recon_loss(z, output_train.pos_edge_label_index,
-                                                    neg_edge_index=neg_edge_index)
+                        z = cgvae_net(input, output)
+                        loss = cgvae_net.recon_loss(z[output.train_mask], output.y[output.train_mask])
                         loss = loss + regularization * cgvae_net.kl_divergence()
 
                     else:
-                        z = cgvae_net(input, output_val)
-                        loss = cgvae_net.recon_loss(z, output_val.pos_edge_label_index,
-                                                    output_val.neg_edge_label_index)
+                        z = cgvae_net(input, output)
+                        loss = cgvae_net.recon_loss(z[output.val_mask], output.y[output.val_mask])
                     # todo: the KL need to be adjusted by size of output
                     if phase == 'train':
                         loss.backward()
@@ -198,19 +156,12 @@ def test( model: CGVAE, data, device='cpu'):
     model.eval()
     with torch.no_grad():
         input = data['input'].to(device)
-        output_test = data['output']['test'].to(device)
-        # todo: problem here
-        # create edge_index by combining pos_edge_label_index and neg_edge_label_index
-        edge_label_index = torch.cat((output_test.neg_edge_label_index,output_test.pos_edge_label_index), dim=1)
-        # create edge_label by combining pos_edge_label and neg_edge_label
-        edge_label = torch.ones(
-            edge_label_index.size(1), dtype=torch.float, device=edge_label_index.device)
-        edge_label[:output_test.neg_edge_label_index.size(1)] = 0
-        predicted_logits = model.generate(edge_label_index)  # output should be generated from latent space for test
-        # calculate roc_auc
-        roc_auc = roc_auc_score(edge_label, predicted_logits)
-        # calculate average precision
-        precision, recall, _ = precision_recall_curve(edge_label, predicted_logits)
-        average_precision = average_precision_score(edge_label, predicted_logits)
-
-    return roc_auc, average_precision
+        output = data['output'].to(device)
+        z = model(input, output)
+        predicted_logits = model.generate(z[output.test_mask])
+        # multi-class accuracy
+        _, predicted_labels = torch.max(predicted_logits, 1)
+        true_labels = output.y[output.test_mask]
+        accuracy = (predicted_labels[output.test_mask] == true_labels).sum().item() / len(true_labels)
+        # AUC
+    return accuracy

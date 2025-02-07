@@ -10,20 +10,20 @@ import argparse
 import os.path as osp
 import logging
 
-from src.cgvae.encoder.encoder import ReconEncoder, RegEncoder
+from src.cgvae.encoder.encoder import ReconEncoder, RegEncoder, Decoder
 
 if __name__ == '__main__':
     argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description='CGVAE')
     # dataset arguments
-    parser.add_argument('--dataset', type=str, default='Cora')
+    parser.add_argument('--dataset', type=str, default='PubMed')
     parser.add_argument('--split_ratio', type=float, default=0.7)
-    parser.add_argument('--num_val', type=float, default=0.2)
-    parser.add_argument('--num_test', type=float, default=0.3)
+    parser.add_argument('--num_val', type=float, default=0.1)
+    parser.add_argument('--num_test', type=float, default=0.2)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
     parser.add_argument('--add_input_edges_to_output', action='store_true')
     # model train arguments
-    parser.add_argument('--layer_type', type=str, default='GCNConv')
+    parser.add_argument('--layer_type', type=str, default='GATConv')
     parser.add_argument('--model_path', type=str, default='model')
     parser.add_argument('--out_channels', type=int, default=32)
     # training arguments
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.005)
     parser.add_argument('--regularization', type=float, default=0)
-    parser.add_argument('--false_pos_edge_ratio', type=float, default=0.1)
+    parser.add_argument('--false_pos_edge_ratio', type=float, default=0.5)
     parser.add_argument('--featureless', action='store_true')
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
@@ -68,10 +68,13 @@ if __name__ == '__main__':
 
     reg_encoder = RegEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
     recon_encoder = ReconEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
+    num_classes = data['output'].y.max().item() + 1
+    classifier = Decoder(input_dim=args.out_channels, hidden_dim=args.out_channels * 2, output_dim=num_classes)
 
     cgvae_net, val_loss = cgvae.cgvae_train(
         device=args.device,
         data=data,
+        classifer=classifier,
         reg_encoder=reg_encoder,
         recon_encoder=recon_encoder,
         out_channels=args.out_channels,
@@ -86,8 +89,8 @@ if __name__ == '__main__':
     end_time = time.time()
     execution_time = end_time - time_start
 
-    auc, ap = cgvae.cgvae_model.test(cgvae_net, data)
-    print(f'seed: {args.seed}, AUC: {auc}, AP: {ap}')
+    accuracy = cgvae.cgvae_model.test(cgvae_net, data)
+    print(f'seed: {args.seed}, accuracy: {accuracy}')
 
     # Create a dictionary with the data you want to save
     data = {
@@ -95,8 +98,9 @@ if __name__ == '__main__':
         'split_ratio': args.split_ratio,
         'seed': args.seed,
         'val_loss': round(val_loss.item(), 4),
-        'AUC': round(auc, 4),
-        'AP': round(ap, 4),
+        'accuracy': round(accuracy, 4),
+        # 'AUC': round(auc, 4),
+        # 'AP': round(ap, 4),
         'learning_rate': args.learning_rate,
         'regularization': args.regularization,
         'neg_sample_ratio': args.neg_sample_ratio,

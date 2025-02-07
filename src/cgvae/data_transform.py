@@ -3,6 +3,7 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/10/24
 """
+import copy
 from typing import Any
 
 import torch_geometric as pyg
@@ -11,7 +12,7 @@ from overrides import overrides
 from torch import Tensor
 from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.data import Data
-from torch_geometric.datasets import KarateClub, AttributedGraphDataset, Yelp, AmazonProducts, Flickr, CoraFull
+from torch_geometric.datasets import KarateClub, AttributedGraphDataset, Yelp, AmazonProducts, Flickr, CoraFull, Amazon
 from torch_geometric.datasets import Planetoid, PPI
 from torch_geometric.datasets import GNNBenchmarkDataset
 from torch_geometric.datasets import MNISTSuperpixels
@@ -68,7 +69,11 @@ class MaskAdjacencyMatrix(BaseTransform):
         temp_adj_mat[int(split_index):, : int(split_index)] = 0
         out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(temp_adj_mat)
         # the output is pyg.data.Data object but with additional attributes "neg_edge_index"
-        out = Data(data.x, edge_index=out_edge_index, edge_weight=out_edge_weight)
+        # deep copy the data object
+        out = copy.deepcopy(data)
+        out.edge_index = out_edge_index
+        out.edge_weight = out_edge_weight
+
         # for input only mask the bottom-right quadrant
         inp_adj_mat = adj_mat.clone()
         # mask quadrant top-left
@@ -77,7 +82,9 @@ class MaskAdjacencyMatrix(BaseTransform):
         # [ 1 ][ 1 ]
         inp_adj_mat[:int(split_index), :int(split_index)] = MASK_VALUE
         inp_edge_index, inp_edge_weight = pyg.utils.dense_to_sparse(inp_adj_mat)
-        inp = Data(data.x, edge_index=inp_edge_index, edge_weight=inp_edge_weight)
+        inp = copy.deepcopy(data)
+        inp.edge_index=inp_edge_index
+        inp.edge_weight=inp_edge_weight
         sample = {'input': inp, 'output': out}
         return sample
 
@@ -138,6 +145,36 @@ class PermuteNode(BaseTransform):
         data.edge_index = edge_index
         return data
 
+class OutputRandomNodesSplit(BaseTransform):
+    def __init__(self, split_ratio, num_val=0.1, num_test=0.2):
+        super().__init__()
+        self.split_ratio = split_ratio
+        self.num_val = num_val
+        self.num_test = num_test
+
+
+    def forward(self, data: Any) -> Any:
+        num_nodes = data['input'].num_nodes
+        num_target_nodes = int(num_nodes * self.split_ratio)
+        num_val = int(num_target_nodes * self.num_val)
+        num_test = int(num_target_nodes * self.num_test)
+        num_train = num_target_nodes - num_val - num_test
+
+        perm = torch.randperm(num_nodes)
+        train_idx = perm[:num_train]
+        val_idx = perm[num_train:num_train + num_val]
+        test_idx = perm[num_train + num_val:]
+
+        data['output'].train_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        data['output'].val_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        data['output'].test_mask = torch.zeros(num_nodes, dtype=torch.bool)
+
+        data['output'].train_mask[train_idx] = True
+        data['output'].val_mask[val_idx] = True
+        data['output'].test_mask[test_idx] = True
+
+        return data
+
 #  Random remove edges from the output subgraph
 # todo:
 class OutputRandomEdgesSplit(BaseTransform):
@@ -150,6 +187,8 @@ class OutputRandomEdgesSplit(BaseTransform):
                                                  split_labels=True,
                                                  add_negative_train_samples=True)
         self.add_input_edges_to_output = add_input_edges_to_output
+
+
 
     def forward(self, data: Any) -> Any:
         '''
@@ -169,6 +208,13 @@ class OutputRandomEdgesSplit(BaseTransform):
         output = {'train': output_train, 'val': output_val, 'test': output_test}
 
         return {'input': data['input'], 'output': output}
+
+
+class TransformY(BaseTransform):
+    def forward(self, data: dict) -> Any:
+        # transform the y to int instead of one-hot encoding
+        data.y = torch.argmax(data.y, dim=1)
+        return data
 
 def get_data(root='.', dataset_name:str = None,
              mask_ratio=0.5,
@@ -191,15 +237,15 @@ def get_data(root='.', dataset_name:str = None,
     '''
 
     pre_transform_functions = [T.NormalizeFeatures(), ToUndirected()]
+    if dataset_name == 'PPI':
+        transform_y = TransformY()
+        pre_transform_functions.append(transform_y)
 
     # defne a function that will iterate the input over the list of pre_transforms
     pre_transforms = T.Compose(pre_transform_functions)
 
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
-    output_random_edge_split = OutputRandomEdgesSplit(num_val=num_val,
-                                                      num_test=num_test,
-                                                      neg_sampling_ratio=neg_sample_ratio,
-                                                      add_input_edges_to_output=add_input_edges_to_output)
+    output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test, split_ratio=mask_ratio)
     permute_node = PermuteNode()
 
     transform_functions = []
@@ -215,7 +261,7 @@ def get_data(root='.', dataset_name:str = None,
     if false_pos_edge_ratio is not None and false_pos_edge_ratio > 0:
         transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=false_pos_edge_ratio))
 
-    transform_functions.append(output_random_edge_split)
+    transform_functions.append(output_random_node_split)
     transforms = T.Compose(transform_functions)
 
     if dataset_name == 'RandomGraph':
@@ -230,10 +276,13 @@ def get_data(root='.', dataset_name:str = None,
     if dataset_name == 'PubMed':
         dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transforms,
                             transform=transforms)
-    if dataset_name == 'PPI':
-        dataset = AttributedGraphDataset(root=root, name='PPI',
-                                         pre_transform=pre_transforms,
-                      transform=transforms)
+    #todo: PPI dataset need to be double check, cannot add false-positive edges
+    # if dataset_name == 'PPI':
+    #     dataset = PPI(root=root, pre_transform=pre_transforms,
+    #                   transform=transforms)
+        # dataset = AttributedGraphDataset(root=root, name='PPI',
+        #                                  pre_transform=pre_transforms,
+        #               transform=transforms)
     if dataset_name == 'facebook':
         dataset = AttributedGraphDataset(root=root, name='facebook',
                                          pre_transform=pre_transforms,
@@ -241,6 +290,14 @@ def get_data(root='.', dataset_name:str = None,
     if dataset_name == 'Yelp':
         dataset = CoraFull(root=root, pre_transform=pre_transforms,
                       transform=transforms)
+    if dataset_name == 'amazon_computer':
+        dataset = Amazon(root=root, name='computers', pre_transform=pre_transforms,
+                      transform=transforms)
+
+    if dataset_name == 'amazon_photo':
+        dataset = Amazon(root=root, name='photo', pre_transform=pre_transforms,
+                      transform=transforms)
+
     if dataset is None:
         raise ValueError('Dataset not found')
 
