@@ -12,6 +12,9 @@ import logging
 
 from src.cgvae.encoder.encoder import ReconEncoder, RegEncoder, Decoder
 
+
+
+# todo: use hydra for config management
 if __name__ == '__main__':
     argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description='CGVAE')
@@ -21,7 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_val', type=float, default=0.2)
     parser.add_argument('--num_test', type=float, default=0.2)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
-    parser.add_argument('--use_edge_for_predict', type=str, default='combined')
+    parser.add_argument('--use_edge_for_predict', type=str, default='target')
     # model train arguments
     parser.add_argument('--layer_type', type=str, default='GATConv')
     parser.add_argument('--model_path', type=str, default='model')
@@ -62,8 +65,8 @@ if __name__ == '__main__':
         conv_layer = GATConv
 
     reg_encoder = RegEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
-    recon_encoder = ReconEncoder(conv_layer=conv_layer, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
-    num_classes = data['output'].y.max().item() + 1
+    recon_encoder = ReconEncoder(conv_layer=conv_layer, use_edge_for_predict=args.use_edge_for_predict, hidden_size=args.out_channels * 2, latent_size=args.out_channels)
+    num_classes = data.y.max().item() + 1
     classifier = Decoder(input_dim=args.out_channels, hidden_dim=args.out_channels * 2, output_dim=num_classes)
 
     cgvae_net, val_loss = cgvae.cgvae_train(

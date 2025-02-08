@@ -38,11 +38,11 @@ class CGVAE(torch.nn.Module):
         # and standardize KL loss for the size of the output
         self.split_ratio = split_ratio
 
-    def forward(self, masked_x: pyg.data.Data, masked_y: pyg.data.Data):
+    def forward(self, data):
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
-        self.prior_mu = self.reg_net(masked_x) # todo: change back
-        self.posterior_mu = self.recon_net(masked_x, masked_y.edge_index)
+        self.prior_mu = self.reg_net(data.x,  data.reg_edge_index) # todo: change back
+        self.posterior_mu = self.recon_net(data)
         return self.posterior_mu
 
     def generate(self, edge_index) -> Tensor:
@@ -111,8 +111,7 @@ def train(device,
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
-    input = data['input'].to(device)
-    output = data['output'].to(device)
+    data = data.to(device)
 
     for epoch in range(num_epochs):
 
@@ -126,13 +125,13 @@ def train(device,
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
-                        z = cgvae_net(input, output)
-                        loss = cgvae_net.recon_loss(z[output.train_mask], output.y[output.train_mask])
+                        z = cgvae_net(data)
+                        loss = cgvae_net.recon_loss(z[data.train_mask], data.y[data.train_mask])
                         loss = loss + regularization * cgvae_net.kl_divergence()
 
                     else:
-                        z = cgvae_net(input, output)
-                        loss = cgvae_net.recon_loss(z[output.val_mask], output.y[output.val_mask])
+                        z = cgvae_net(data)
+                        loss = cgvae_net.recon_loss(z[data.val_mask], data.y[data.val_mask])
                     # todo: the KL need to be adjusted by size of output
                     if phase == 'train':
                         loss.backward()
@@ -153,13 +152,12 @@ def test( model: CGVAE, data, device='cpu'):
     model.to(device)
     model.eval()
     with torch.no_grad():
-        input = data['input'].to(device)
-        output = data['output'].to(device)
-        z = model(input, output)
-        predicted_logits = model.generate(z[output.test_mask])
+        data = data.to(device)
+        z = model(data)
+        predicted_logits = model.generate(z[data.test_mask])
         # multi-class accuracy
         _, predicted_labels = torch.max(predicted_logits, 1)
-        true_labels = output.y[output.test_mask]
-        accuracy = (predicted_labels[output.test_mask] == true_labels).sum().item() / len(true_labels)
+        true_labels = data.y[data.test_mask]
+        accuracy = (predicted_labels[data.test_mask] == true_labels).sum().item() / len(true_labels)
         # AUC
     return accuracy

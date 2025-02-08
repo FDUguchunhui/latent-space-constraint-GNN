@@ -32,73 +32,28 @@ class MaskAdjacencyMatrix(BaseTransform):
     This transformation masks the adjacency matrix of torch_geometric dataset.
     '''
 
-    def __init__(self, neg_edge_ratio=1.0, ratio=0.5):
+    def __init__(self, ratio=0.5):
         super().__init__()
         self.ratio = ratio
-        self.neg_edge_ratio = neg_edge_ratio
 
     @overrides
     def forward(self, data):
-        adj_mat = pyg.utils.to_dense_adj(data.edge_index).squeeze()
-        out_adj_mat = adj_mat.clone()  # create a masked version of the adjacency matrix
-        dim, _ = adj_mat.shape  # get num of nodes
+        num_nodes = data.x.size(0)
+        # randomly draw self.ratio of the nodes id start from 0 to num_nodes-1
+        reg_node_ids = np.random.choice(num_nodes, int(num_nodes * (1-self.ratio)), replace=False)
+        # create a boolean mask to indicate the nodes to be masked
+        data.reg_node_mask = torch.tensor(np.isin(np.arange(num_nodes), reg_node_ids))
 
-        # create a masked version of the adjacency matrix `adj` for input and output
-        # the index `adj` is divided into 4 quadrants. All quadrants except the bottom-right are used as input and
-        # the bottom-right quadrant is used as output.
-        # For `adj`, when the value is masked, it is set to 0 to avoid information aggregation through masked edges.
-        # It was tried to set it as 0.5 to denote the that the edge is neither 0 (non-existent) but the result is not
-        # as expected.
-        MASK_VALUE = 0
-        split_index = int(dim * self.ratio)
-        # TODO: the rule about what region of adjacency matrix is masked is different from the mask in image since
-        #   the adjacency matrix is symmetric and the image is not necessarily symmetric. Current implementation only
-        #   masks the bottom-right quadrant of the adjacency matrix. But it should support more masking options later.
-        #   nor 1 (existent)
-        # [ 1 ][ 0 ]
-        # ----------
-        # [ 0 ][ 0 ]
-        # mask quadrant top-right & bottom-right
-        out_adj_mat[:, int(split_index):] = MASK_VALUE
-        # mask quadrant bottom-left
-        out_adj_mat[int(split_index):, : int(split_index)] = MASK_VALUE
-        out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(out_adj_mat)
+        # remove edge_index related reg_node_id from edge_index and create a reg_edge_index
+        # Convert edge_index to numpy array for easier manipulation
+        edge_index_np = data.edge_index.numpy()
+        # Create a boolean mask to filter out edges with source or target in node_list
+        mask = ~np.isin(edge_index_np[0], reg_node_ids) & ~np.isin(edge_index_np[1], reg_node_ids)
+        # Apply the mask to edge_index
+        data.edge_index = torch.tensor(edge_index_np[:, mask])
+        data.reg_edge_index = torch.tensor(edge_index_np[:, ~mask])
 
-        temp_adj_mat = adj_mat.clone()
-        temp_adj_mat[:, int(split_index):] = 0
-        temp_adj_mat[int(split_index):, : int(split_index)] = 0
-        out_edge_index, out_edge_weight = pyg.utils.dense_to_sparse(temp_adj_mat)
-        # the output is pyg.data.Data object but with additional attributes "neg_edge_index"
-        # deep copy the data object
-        out = copy.deepcopy(data)
-        out.edge_index = out_edge_index
-        out.edge_weight = out_edge_weight
-
-        # for input only mask the bottom-right quadrant
-        inp_adj_mat = adj_mat.clone()
-        # mask quadrant top-left
-        # [ 0 ][ 1 ]
-        # ----------
-        # [ 1 ][ 1 ]
-        inp_adj_mat[:int(split_index), :int(split_index)] = MASK_VALUE
-        inp_edge_index, inp_edge_weight = pyg.utils.dense_to_sparse(inp_adj_mat)
-        inp = copy.deepcopy(data)
-        inp.edge_index=inp_edge_index
-        inp.edge_weight=inp_edge_weight
-        sample = {'input': inp, 'output': out}
-        return sample
-
-# # currently, MaskAdjacencyMatrix is not a functional transform, so it cannot be used in pre_transform since
-# # it require return a Data object while MaskAdjacencyMatrix returns a dict of two Data objects.
-# # this function is not used in the current implementation
-# class pre_transform(BaseTransform):
-#     def __init__(self, neg_edge_ratio=1.0):
-#         super().__init__()
-#         self.to_undirected = ToUndirected()
-#         self.mask_adjacency_matrix = MaskAdjacencyMatrix(neg_edge_ratio=neg_edge_ratio)
-#         raise NotImplementedError("This function is still under development.")
-#     def forward(self, data: Any) -> Any:
-#         return self.mask_adjacency_matrix(self.to_undirected(data))
+        return data
 
 
 class AddFalsePositiveEdge(BaseTransform):
@@ -108,14 +63,13 @@ class AddFalsePositiveEdge(BaseTransform):
         self.ratio = ratio
         self.false_pos_ratio = false_pos_ratio
 
-    def forward(self, data: dict) -> Any:
-        output = data['output']
-        split_index = int(output.num_nodes * self.ratio)
-        false_pos_edge_index = pyg.utils.negative_sampling(data['output'].edge_index,
+    def forward(self, data: Data) -> Any:
+        split_index = int(data.num_nodes * self.ratio)
+        false_pos_edge_index = pyg.utils.negative_sampling(data.edge_index,
                                                            num_nodes=split_index,
-                                                           num_neg_samples=int(output.edge_index.size(1) * self.false_pos_ratio))
-        output.edge_index = torch.cat([output.edge_index, false_pos_edge_index], dim=1)
-        return {'input': data['input'], 'output': output}
+                                                           num_neg_samples=int(data.edge_index.size(1) * self.false_pos_ratio))
+        data.edge_index = torch.cat([data.edge_index, false_pos_edge_index], dim=1)
+        return data
 
 class RemoveNodeFeature(BaseTransform):
     def __init__(self, ratio=0.5):
@@ -124,25 +78,6 @@ class RemoveNodeFeature(BaseTransform):
     def forward(self, data: pyg.data.Data) -> Any:
         # one-hot encoding of the node position with 0 to num_nodes-1
         data.x = torch.eye(data.x.size(0), dtype=torch.float)
-        return data
-
-
-class PermuteNode(BaseTransform):
-    def __init__(self, seed=0):
-        super().__init__()
-
-    def forward(self, data: Any) -> Any:
-        dim = data.x.size(0)
-        perm = np.eye(dim, dtype=int)
-        np.random.shuffle(perm)
-        data.x = data.x[np.where(perm == 1)[1], :]
-        # permute the edge_index
-        perm = torch.tensor(perm, dtype=torch.float)
-        adj_mat = pyg.utils.to_dense_adj(data.edge_index)
-        adj_mat = perm @ adj_mat @ perm.T
-        adj_mat = adj_mat.squeeze(0)
-        edge_index, edge_weight = pyg.utils.dense_to_sparse(adj_mat)
-        data.edge_index = edge_index
         return data
 
 class OutputRandomNodesSplit(BaseTransform):
@@ -154,29 +89,33 @@ class OutputRandomNodesSplit(BaseTransform):
 
 
     def forward(self, data: Any) -> Any:
-        num_nodes = data['input'].num_nodes
-        num_target_nodes = int(num_nodes * self.split_ratio)
+        num_nodes = data.x.size(0)
+        num_target_nodes = (~data.reg_node_mask).sum()
         num_val = int(num_target_nodes * self.num_val)
         num_test = int(num_target_nodes * self.num_test)
         num_train = num_target_nodes - num_val - num_test
 
-        perm = torch.randperm(num_nodes)
+        # Get the indices of the unmasked nodes
+        unmasked_indices = torch.where(~data.reg_node_mask)[0]
+
+        # Permute only the unmasked nodes
+        perm = unmasked_indices[torch.randperm(num_target_nodes)]
+
         train_idx = perm[:num_train]
         val_idx = perm[num_train:num_train + num_val]
         test_idx = perm[num_train + num_val:]
 
-        data['output'].train_mask = torch.zeros(num_nodes, dtype=torch.bool)
-        data['output'].val_mask = torch.zeros(num_nodes, dtype=torch.bool)
-        data['output'].test_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        data.train_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        data.val_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        data.test_mask = torch.zeros(num_nodes, dtype=torch.bool)
 
-        data['output'].train_mask[train_idx] = True
-        data['output'].val_mask[val_idx] = True
-        data['output'].test_mask[test_idx] = True
+        data.train_mask[train_idx] = True
+        data.val_mask[val_idx] = True
+        data.test_mask[test_idx] = True
 
         return data
 
-#  Random remove edges from the output subgraph
-# todo:
+
 class OutputRandomEdgesSplit(BaseTransform):
     def __init__(self, num_val=0.1,  num_test=0.2, neg_sampling_ratio=1.0,
                  add_input_edges_to_output=False):
@@ -246,15 +185,10 @@ def get_data(root='.', dataset_name:str = None,
 
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
     output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test, split_ratio=mask_ratio)
-    permute_node = PermuteNode()
 
     transform_functions = []
 
-    if featureless:
-        transform_functions.append(RemoveNodeFeature())
-
     transform_functions = transform_functions + [
-        # PermuteNode(),
         mask_adjacency_matrix,
     ]
 

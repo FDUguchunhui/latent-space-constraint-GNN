@@ -16,7 +16,8 @@ def run_experiment(params):
         '--regularization', str(regularization),
         '--seed', str(seed),
         '--learning_rate', str(learning_rate),
-        '--num_epochs', str(num_epoch)
+        '--num_epochs', str(num_epoch),
+        '--use_edge_for_predict', use_edge_for_predict,
     ]
 
 
@@ -32,7 +33,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Define the different split_ratio and dataset choices
-    split_ratios = [0.7]
+    split_ratios = [0.5]
     # split_ratios = [1]
     # false_pos_edge_ratios = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
     false_pos_edge_ratios = [0.2] # percentage of true positive edges will be added for false positive edges
@@ -45,7 +46,7 @@ if __name__ == '__main__':
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [300]
-    dataset = ['CiteSeer']
+    dataset = ['Cora']
     use_edge_for_predict = ['combined']
     # Iterate over the choices
     # Create a list of all parameter combinations
