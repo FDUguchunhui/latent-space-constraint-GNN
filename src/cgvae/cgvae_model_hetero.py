@@ -13,7 +13,7 @@ import torchmetrics
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS
 from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
-from torch_geometric.nn import InnerProductDecoder, to_hetero, SAGEConv, Linear
+from torch_geometric.nn import InnerProductDecoder, to_hetero, SAGEConv, Linear, GATConv
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -23,8 +23,8 @@ class recon_encoder(torch.nn.Module):
     def __init__(self, hidden_size, latent_size):
         super().__init__()
         self.lin1 = Linear(-1, hidden_size)
-        self.conv1 = SAGEConv((-1, -1), hidden_size)
-        self.conv2 = SAGEConv((-1, -1), latent_size)
+        self.conv1 = GATConv((-1, -1), hidden_size, add_self_loops=False)
+        self.conv2 = GATConv((-1, -1), latent_size, add_self_loops=False)
 
     def forward(self, x, edge_index):
         # put x and y together in the same adjacency matrix for simplification
@@ -34,14 +34,14 @@ class recon_encoder(torch.nn.Module):
         # for prior network, the input need to be input edge + output edge
         # combined_edge_index =  y_edge_index
         # extract edge_index and edge_weight from masked_y only in the observed region
-        z = self.conv1(x, edge_index).relu() + self.lin1(x)
+        z = (self.conv1(x, edge_index) + self.lin1(x)).relu()
         z = self.conv2(z, edge_index)
         return z
 
 class reg_encoder(torch.nn.Module):
     def __init__(self, hidden_size, latent_size):
         super().__init__()
-        self.conv1 = SAGEConv((-1, -1), latent_size)
+        self.conv1 = GATConv((-1, -1), latent_size, add_self_loops=False)
         # self.conv2 = SAGEConv((-1, -1), latent_size)
 
     def forward(self, x, edge_index):

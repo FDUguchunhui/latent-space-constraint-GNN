@@ -6,7 +6,7 @@ import numpy as np
 
 def run_experiment(params):
     (dataset, split_ratio, neg_sample_ratio, false_pos_edge_ratio,
-     regularization, add_input_edges_to_output, out_channels, learning_rate, num_epoch, seed) = params
+     regularization, out_channels, learning_rate, num_epoch,  use_edge_for_predict, seed) = params
 
     arguments = [
         'python', 'main.py', '--split_ratio', str(split_ratio),
@@ -19,8 +19,6 @@ def run_experiment(params):
         '--num_epochs', str(num_epoch)
     ]
 
-    if add_input_edges_to_output:
-        arguments.append('--add_input_edges_to_output')
 
     subprocess.run(arguments)
     subprocess.run(['sleep', '1'])
@@ -37,24 +35,23 @@ if __name__ == '__main__':
     split_ratios = [0.7]
     # split_ratios = [1]
     # false_pos_edge_ratios = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3] # percentage of true positive edges will be added for false positive edges
-    false_pos_edge_ratios = [0.1] # percentage of true positive edges will be added for false positive edges
+    false_pos_edge_ratios = [0.2] # percentage of true positive edges will be added for false positive edges
     # false_pos_edge_ratios = [0] # percentage of true positive edges will be added for false positive edges
     regularizations = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     # regularizations = [0.3]
     # regularizations = [6]
     # !!!!! check this line this should used be used to check without using regularization
-    add_input_edges_to_output = [False]
     out_channels = [16]
     neg_sample_ratios = [1]
     learning_rates = [0.005]
     num_epochs = [300]
-    dataset = ['Cora']
-
+    dataset = ['CiteSeer']
+    use_edge_for_predict = ['combined']
     # Iterate over the choices
     # Create a list of all parameter combinations
     param_combinations = list(itertools.product(
         dataset, split_ratios, neg_sample_ratios, false_pos_edge_ratios,
-        regularizations, add_input_edges_to_output, out_channels, learning_rates, num_epochs
+        regularizations, out_channels, learning_rates, num_epochs, use_edge_for_predict
     ))
 
     # Append seed increments for each experiment

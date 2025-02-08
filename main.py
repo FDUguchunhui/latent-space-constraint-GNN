@@ -16,12 +16,12 @@ if __name__ == '__main__':
     argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description='CGVAE')
     # dataset arguments
-    parser.add_argument('--dataset', type=str, default='PubMed')
+    parser.add_argument('--dataset', type=str, default='Cora')
     parser.add_argument('--split_ratio', type=float, default=0.7)
-    parser.add_argument('--num_val', type=float, default=0.1)
+    parser.add_argument('--num_val', type=float, default=0.2)
     parser.add_argument('--num_test', type=float, default=0.2)
     parser.add_argument('--neg_sample_ratio', type=float, default=1)
-    parser.add_argument('--add_input_edges_to_output', action='store_true')
+    parser.add_argument('--use_edge_for_predict', type=str, default='combined')
     # model train arguments
     parser.add_argument('--layer_type', type=str, default='GATConv')
     parser.add_argument('--model_path', type=str, default='model')
@@ -30,19 +30,18 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--learning_rate', type=float, default=0.005)
-    parser.add_argument('--regularization', type=float, default=0)
-    parser.add_argument('--false_pos_edge_ratio', type=float, default=0.5)
-    parser.add_argument('--featureless', action='store_true')
+    parser.add_argument('--regularization', type=float, default=2)
+    parser.add_argument('--false_pos_edge_ratio', type=float, default=0.1)
     # other arguments
     parser.add_argument('--results', type=str, default='results/results.json')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu')
     args = parser.parse_args()
 
-    pyg.seed.seed_everything(38) # fix train/val/test split, negative sampling, and false positive edges
-    # torch.manual_seed(args.seed)
     # create logger
     logging.basicConfig(level=logging.INFO)
+
+    pyg.seed.seed_everything(args.seed)
 
     # initalize dataloader
     data = cgvae.data_transform.get_data('data/', args.dataset,
@@ -50,14 +49,10 @@ if __name__ == '__main__':
                                          num_val=args.num_val,
                                          num_test=args.num_test,
                                          neg_sample_ratio=args.neg_sample_ratio,
-                                         false_pos_edge_ratio=args.false_pos_edge_ratio,
-                                         add_input_edges_to_output=args.add_input_edges_to_output,
-                                         featureless=args.featureless)
+                                         false_pos_edge_ratio=args.false_pos_edge_ratio)
 
     # count run time from here
     time_start = time.time()
-
-    pyg.seed.seed_everything(args.seed)
 
     if args.layer_type =='GCNConv':
         conv_layer = GCNConv
@@ -96,6 +91,7 @@ if __name__ == '__main__':
     data = {
         'dataset': args.dataset,
         'split_ratio': args.split_ratio,
+        'use_edge_for_predict': args.use_edge_for_predict,
         'seed': args.seed,
         'val_loss': round(val_loss.item(), 4),
         'accuracy': round(accuracy, 4),
@@ -105,7 +101,6 @@ if __name__ == '__main__':
         'regularization': args.regularization,
         'neg_sample_ratio': args.neg_sample_ratio,
         'false_pos_edge_ratio': args.false_pos_edge_ratio,
-        'add_input_edges_to_output': args.add_input_edges_to_output,
         'execution_time': round(execution_time, 2),
         'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
     }

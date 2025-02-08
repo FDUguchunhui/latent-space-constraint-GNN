@@ -42,7 +42,6 @@ class CGVAE(torch.nn.Module):
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
         self.prior_mu = self.reg_net(masked_x) # todo: change back
-
         self.posterior_mu = self.recon_net(masked_x, masked_y.edge_index)
         return self.posterior_mu
 
@@ -109,8 +108,7 @@ def train(device,
                       split_ratio=split_ratio)
     cgvae_net.to(device)
     # only optimize the parameters of the CGVAE
-    optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))
-    best_loss = np.inf
+    optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     input = data['input'].to(device)
