@@ -41,20 +41,13 @@ class CGVAE(torch.nn.Module):
     def forward(self, data):
 
         # combine masked_y.edge_index and predicted_y_edge to get the complete edge_index
-        self.prior_mu = self.reg_net(data.x,  data.reg_edge_index) # todo: change back
-        self.posterior_mu = self.recon_net(data)
-        return self.posterior_mu
+        reg_latent = self.reg_net(data.x,  data.reg_edge_index) # todo: change back
+        target_latent = self.recon_net(data)
+        return target_latent, reg_latent
 
-    def generate(self, edge_index) -> Tensor:
-        with torch.no_grad():
-            # sample from the conditional posterior
-            return self.generation_net(self.posterior_mu)
-
-    def kl_divergence(self) -> Tensor:
-        split_index = int(self.prior_mu.size(0) * self.split_ratio)
-        #
+    def reg_loss(self, target_latent, reg_latent) -> Tensor:
         kl =  torch.mean(
-            torch.mean(((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
+            torch.mean(((target_latent - reg_latent)**2)
                       , dim=1))
 
         # if variational
@@ -97,7 +90,6 @@ def train(device,
           out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
-          early_stop_patience=10,
           regularization=1.0,
           split_ratio=0.5, neg_sample_ratio=1):
 
@@ -125,12 +117,12 @@ def train(device,
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
-                        z = cgvae_net(data)
+                        z, reg_z = cgvae_net(data)
                         loss = cgvae_net.recon_loss(z[data.train_mask], data.y[data.train_mask])
-                        loss = loss + regularization * cgvae_net.kl_divergence()
+                        loss = loss + regularization * cgvae_net.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
 
                     else:
-                        z = cgvae_net(data)
+                        z, _ = cgvae_net(data)
                         loss = cgvae_net.recon_loss(z[data.val_mask], data.y[data.val_mask])
                     # todo: the KL need to be adjusted by size of output
                     if phase == 'train':
@@ -153,8 +145,8 @@ def test( model: CGVAE, data, device='cpu'):
     model.eval()
     with torch.no_grad():
         data = data.to(device)
-        z = model(data)
-        predicted_logits = model.generate(z[data.test_mask])
+        z, _ = model(data)
+        predicted_logits = model.generation_net(z)
         # multi-class accuracy
         _, predicted_labels = torch.max(predicted_logits, 1)
         true_labels = data.y[data.test_mask]

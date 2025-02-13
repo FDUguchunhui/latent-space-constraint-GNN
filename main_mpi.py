@@ -8,9 +8,9 @@ import numpy as np
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import TensorBoardLogger, MLFlowLogger
 from omegaconf import DictConfig, OmegaConf
-import  src.cgvae.cgvae_model_hetero as hetero_cgvae
+import  src.model.cgvae_model_hetero as hetero_cgvae
 import pytorch_lightning as pl
-from src.cgvae.data.hetero_data_module import HeteroDataModule
+from src.model.data.hetero_data_module import HeteroDataModule
 
 
 @hydra.main(config_path="config", config_name="config", version_base="1.2")

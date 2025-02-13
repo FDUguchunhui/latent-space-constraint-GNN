@@ -16,7 +16,7 @@ from torch import Tensor
 from torch_geometric.nn import GCNConv, InnerProductDecoder, GINConv
 from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
-from src.cgvae.utils import MaskedReconstructionLoss
+from src.model.utils import MaskedReconstructionLoss
 import torch.nn.functional as F
 
 

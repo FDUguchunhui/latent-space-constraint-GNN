@@ -23,7 +23,7 @@ import torch
 import numpy as np
 import torch_geometric.transforms as T
 
-from src.cgvae.random_graph import RandomGraph
+from src.model.random_graph import RandomGraph
 
 
 # @functional_transform('mask_adjacency_matrix')
@@ -42,7 +42,7 @@ class MaskAdjacencyMatrix(BaseTransform):
         # randomly draw self.ratio of the nodes id start from 0 to num_nodes-1
         reg_node_ids = np.random.choice(num_nodes, int(num_nodes * (1-self.ratio)), replace=False)
         # create a boolean mask to indicate the nodes to be masked
-        data.reg_node_mask = torch.tensor(np.isin(np.arange(num_nodes), reg_node_ids))
+        data.target_node_mask = torch.tensor(~np.isin(np.arange(num_nodes), reg_node_ids))
 
         # remove edge_index related reg_node_id from edge_index and create a reg_edge_index
         # Convert edge_index to numpy array for easier manipulation
@@ -90,13 +90,13 @@ class OutputRandomNodesSplit(BaseTransform):
 
     def forward(self, data: Any) -> Any:
         num_nodes = data.x.size(0)
-        num_target_nodes = (~data.reg_node_mask).sum()
+        num_target_nodes = (data.target_node_mask).sum()
         num_val = int(num_target_nodes * self.num_val)
         num_test = int(num_target_nodes * self.num_test)
         num_train = num_target_nodes - num_val - num_test
 
         # Get the indices of the unmasked nodes
-        unmasked_indices = torch.where(~data.reg_node_mask)[0]
+        unmasked_indices = torch.where(data.target_node_mask)[0]
 
         # Permute only the unmasked nodes
         perm = unmasked_indices[torch.randperm(num_target_nodes)]
@@ -159,9 +159,7 @@ def get_data(root='.', dataset_name:str = None,
              mask_ratio=0.5,
              num_val=0.1, num_test=0.2,
              neg_sample_ratio=1.0,
-             featureless=False,
              false_pos_edge_ratio=1.0,
-             add_input_edges_to_output=False
              ):
     '''
     This function returns the dataset object with the specified transformation.
