@@ -12,7 +12,7 @@ import hydra
 from omegaconf import DictConfig
 
 # todo: use hydra for config management
-@hydra.main(config_path="./config/homogeneous", config_name="config", version_base='1.2')
+@hydra.main(config_path="./config/homogeneous", config_name="config", version_base='1.3')
 def main(cfg: DictConfig):
     # create logger
     logging.basicConfig(level=logging.INFO)
@@ -75,6 +75,9 @@ def main(cfg: DictConfig):
         'regularization': cfg.train.regularization,
         'neg_sample_ratio': cfg.data.neg_sample_ratio,
         'false_pos_edge_ratio': cfg.data.false_pos_edge_ratio,
+        'num_epochs': cfg.train.num_epochs,
+        'num_val': cfg.data.num_val,
+        'num_test': cfg.data.num_test,
         'execution_time': round(execution_time, 2),
         'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
     }

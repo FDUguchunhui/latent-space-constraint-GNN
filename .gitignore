@@ -79,6 +79,11 @@ fabric.properties
 
 data/*
 checkpoints/*
+checkpoint/*
+lightning_logs/*
 documents/*
 .Rproj.user
 results/*
+ml-runs
+mlruns
+multirun
