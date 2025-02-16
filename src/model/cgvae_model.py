@@ -106,6 +106,7 @@ def train(device,
     data = data.to(device)
 
     for epoch in range(num_epochs):
+        train_loss, val_loss = None, None  # Initialize variables
 
         for phase in ['train', 'val']:
             if phase == 'train':
@@ -121,16 +122,16 @@ def train(device,
                         loss = cgvae_net.recon_loss(z[data.train_mask], data.y[data.train_mask])
                         loss = loss + regularization * cgvae_net.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
 
+                        loss.backward()
+                        optimizer.step()
+                        train_loss = loss.item()  # Store train loss
+
                     else:
                         z, _ = cgvae_net(data)
                         loss = cgvae_net.recon_loss(z[data.val_mask], data.y[data.val_mask])
-                    # todo: the KL need to be adjusted by size of output
-                    if phase == 'train':
-                        loss.backward()
-                        optimizer.step()
+                        val_loss = loss.item()  # Store val loss
 
-                epoch_loss = loss  # the magnitude of the loss decided by number of edges [node^2]
-                bar.set_postfix(phase=phase, loss='{:.4f}'.format(epoch_loss))
+                bar.set_postfix(phase=phase, loss='{:.4f}'.format(loss))
 
     cgvae_net.eval()
 
@@ -138,7 +139,7 @@ def train(device,
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(cgvae_net.state_dict(), model_path)
 
-    return cgvae_net,  epoch_loss  #todo: return tuple may not be good should try logger later
+    return cgvae_net,  val_loss  #todo: return tuple may not be good should try logger later
 
 def test( model: CGVAE, data, device='cpu'):
     model.to(device)

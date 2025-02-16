@@ -42,7 +42,7 @@ class MaskAdjacencyMatrix(BaseTransform):
         # randomly draw self.ratio of the nodes id start from 0 to num_nodes-1
         reg_node_ids = np.random.choice(num_nodes, int(num_nodes * (1-self.ratio)), replace=False)
         # create a boolean mask to indicate the nodes to be masked
-        data.target_node_mask = torch.tensor(~np.isin(np.arange(num_nodes), reg_node_ids))
+        data.target_node_mask = torch.tensor(~np.isin(np.arange(num_nodes), reg_node_ids), dtype=torch.bool)
 
         # remove edge_index related reg_node_id from edge_index and create a reg_edge_index
         # Convert edge_index to numpy array for easier manipulation
@@ -50,8 +50,8 @@ class MaskAdjacencyMatrix(BaseTransform):
         # Create a boolean mask to filter out edges with source or target in node_list
         mask = ~np.isin(edge_index_np[0], reg_node_ids) & ~np.isin(edge_index_np[1], reg_node_ids)
         # Apply the mask to edge_index
-        data.edge_index = torch.tensor(edge_index_np[:, mask])
-        data.reg_edge_index = torch.tensor(edge_index_np[:, ~mask])
+        data.edge_index = torch.tensor(edge_index_np[:, mask], dtype=torch.long)
+        data.reg_edge_index = torch.tensor(edge_index_np[:, ~mask], dtype=torch.long)
 
         return data
 
@@ -90,7 +90,7 @@ class OutputRandomNodesSplit(BaseTransform):
 
     def forward(self, data: Any) -> Any:
         num_nodes = data.x.size(0)
-        num_target_nodes = (data.target_node_mask).sum()
+        num_target_nodes = int(data.target_node_mask.sum())
         num_val = int(num_target_nodes * self.num_val)
         num_test = int(num_target_nodes * self.num_test)
         num_train = num_target_nodes - num_val - num_test

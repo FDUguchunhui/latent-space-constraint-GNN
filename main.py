@@ -1,3 +1,4 @@
+import os
 import time
 import json
 import torch
@@ -69,18 +70,21 @@ def main(cfg: DictConfig):
         'split_ratio': cfg.data.split_ratio,
         'use_edge_for_predict': cfg.model.use_edge_for_predict,
         'seed': cfg.seed,
-        'val_loss': round(val_loss.item(), 4),
+        'val_loss': round(val_loss, 4),
         'accuracy': round(accuracy, 4),
         'learning_rate': cfg.train.learning_rate,
         'regularization': cfg.train.regularization,
-        'neg_sample_ratio': cfg.data.neg_sample_ratio,
-        'false_pos_edge_ratio': cfg.data.false_pos_edge_ratio,
+        'neg_sample_ratio': round(cfg.data.neg_sample_ratio, 2),
+        'false_pos_edge_ratio': round(cfg.data.false_pos_edge_ratio, 2),
         'num_epochs': cfg.train.num_epochs,
         'num_val': cfg.data.num_val,
         'num_test': cfg.data.num_test,
         'execution_time': round(execution_time, 2),
         'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
     }
+
+    # Ensure the directory part of the results path exists
+    os.makedirs(osp.dirname(cfg.results), exist_ok=True)
 
     # Read the existing data
     with open(cfg.results, 'a') as f:

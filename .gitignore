@@ -77,13 +77,16 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 .idea
 
-data/*
-checkpoints/*
-checkpoint/*
-lightning_logs/*
-documents/*
+data/
+checkpoints/
+checkpoint/
+lightning_logs/
+documents/
 .Rproj.user
-results/*
-ml-runs
-mlruns
-multirun
+results/
+ml-runs/
+mlruns/
+multirun/
+venv/
+figures/
+outputs/

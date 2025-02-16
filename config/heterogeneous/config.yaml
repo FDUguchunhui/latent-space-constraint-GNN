@@ -1,0 +1,22 @@
+dataset:
+  num_val: 0.2
+  num_test: 0.3
+  neg_sample_ratio: 1
+  target_only_in_recon: False
+
+model:
+  model_path: model
+  out_channels: 32
+
+train:
+  num_epochs: 200
+#  batch_size: 16384
+  batch_size: 50000
+  learning_rate: 0.005
+  early_stop_patience: 10
+  regularization: 1000
+
+other:
+  seed: 42
+  ckpt_path: checkpoint
+  log_dir: test_run
