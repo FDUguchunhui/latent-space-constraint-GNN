@@ -56,18 +56,44 @@ class MaskAdjacencyMatrix(BaseTransform):
         return data
 
 
+import torch
+from torch_geometric.transforms import BaseTransform
+from torch_geometric.data import Data
+import torch
+from torch_geometric.transforms import BaseTransform
+from torch_geometric.data import Data
+
 class AddFalsePositiveEdge(BaseTransform):
-    #todo: need to keep added false positive fixed for different runs
-    def __init__(self, ratio=0.5, false_pos_ratio=1.0):
+    def __init__(self, ratio=0.1):
         super().__init__()
         self.ratio = ratio
-        self.false_pos_ratio = false_pos_ratio
 
-    def forward(self, data: Data) -> Any:
-        split_index = int(data.num_nodes * self.ratio)
-        false_pos_edge_index = pyg.utils.negative_sampling(data.edge_index,
-                                                           num_nodes=split_index,
-                                                           num_neg_samples=int(data.edge_index.size(1) * self.false_pos_ratio))
+
+    def forward(self, data: Data) -> Data:
+
+        if not hasattr(data, 'target_node_mask'):
+            raise ValueError("target_node_mask is not found in data. Ensure MaskAdjacencyMatrix is applied first.")
+
+
+    # Get the indices of the nodes with target_node_mask
+        target_node_indices = torch.where(data.target_node_mask)[0]
+        num_target_nodes = len(target_node_indices)
+
+        # Convert edge_index to a set of tuples for faster lookup
+        existing_edges = set(map(tuple, data.edge_index.t().tolist()))
+
+        # Generate false positive edges
+        num_false_pos_edges = int(data.edge_index.size(1) * self.ratio)
+        false_pos_edges = []
+        while len(false_pos_edges) < num_false_pos_edges:
+            i = torch.randint(0, num_target_nodes, (1,)).item()
+            j = torch.randint(0, num_target_nodes, (1,)).item()
+            edge = (target_node_indices[i].item(), target_node_indices[j].item())
+            if i != j and edge not in existing_edges and (edge[1], edge[0]) not in existing_edges:
+                false_pos_edges.append(edge)
+
+        false_pos_edge_index = torch.tensor(false_pos_edges, dtype=torch.long).t().contiguous()
+
         data.edge_index = torch.cat([data.edge_index, false_pos_edge_index], dim=1)
         return data
 
@@ -81,9 +107,8 @@ class RemoveNodeFeature(BaseTransform):
         return data
 
 class OutputRandomNodesSplit(BaseTransform):
-    def __init__(self, split_ratio, num_val=0.1, num_test=0.2):
+    def __init__(self, num_val=0.1, num_test=0.2):
         super().__init__()
-        self.split_ratio = split_ratio
         self.num_val = num_val
         self.num_test = num_test
 
@@ -182,14 +207,14 @@ def get_data(root='.', dataset_name:str = None,
     pre_transforms = T.Compose(pre_transform_functions)
 
     mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=split_ratio)
-    output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test, split_ratio=split_ratio)
+    output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test)
 
     transform_functions = []
 
     transform_functions.append(mask_adjacency_matrix)
 
     if false_pos_edge_ratio is not None and false_pos_edge_ratio > 0:
-        transform_functions.append(AddFalsePositiveEdge(ratio=split_ratio, false_pos_ratio=false_pos_edge_ratio))
+        transform_functions.append(AddFalsePositiveEdge(ratio=false_pos_edge_ratio))
 
     transform_functions.append(output_random_node_split)
     transforms = T.Compose(transform_functions)

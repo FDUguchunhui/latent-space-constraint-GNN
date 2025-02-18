@@ -26,5 +26,4 @@ class GraphData:
             data = get_data(self.root, dataset_name=name, false_pos_edge_ratio=perturbation_rate)
             with open(file_path, 'wb') as f:
                 pickle.dump(data, f)
-
-        return data
+            return data
