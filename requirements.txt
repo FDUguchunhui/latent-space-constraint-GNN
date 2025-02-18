@@ -1,7 +1,0 @@
-torch~=2.3.0
-numpy~=1.26.4
-pathlib~=1.0.1
-scikit-learn~=1.4.0
-overrides~=7.7.0
-tqdm~=4.66.2
-pandas~=2.2.2

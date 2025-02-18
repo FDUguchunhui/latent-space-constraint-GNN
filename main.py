@@ -6,13 +6,23 @@ import torch_geometric as pyg
 from torch_geometric.nn import GCNConv, SAGEConv, GATConv
 import os.path as osp
 import logging
-
-from src import model
+from src import model, data_transform
 from src.encoder import ReconEncoder, RegEncoder, MLPClassifier
 import hydra
 from omegaconf import DictConfig
 
-# todo: use hydra for config management
+
+def flatten_dict(d, parent_key='', sep='.'):
+    """Recursively flattens a nested dictionary into a single-level dict with dot-separated keys."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
 @hydra.main(config_path="./config/homogeneous", config_name="config", version_base='1.3')
 def main(cfg: DictConfig):
     # create logger
@@ -21,15 +31,17 @@ def main(cfg: DictConfig):
     pyg.seed.seed_everything(cfg.seed)
 
     # initalize dataloader
-    data = model.data_transform.get_data('data/', cfg.data.dataset,
-                                         mask_ratio=cfg.data.split_ratio,
-                                         num_val=cfg.data.num_val,
-                                         num_test=cfg.data.num_test,
-                                         neg_sample_ratio=cfg.data.neg_sample_ratio,
-                                         false_pos_edge_ratio=cfg.data.false_pos_edge_ratio)
+    data = data_transform.get_data('data/', cfg.data.dataset,
+                                       mask_ratio=cfg.data.split_ratio,
+                                       num_val=cfg.data.num_val,
+                                       num_test=cfg.data.num_test,
+                                       neg_sample_ratio=cfg.data.neg_sample_ratio,
+                                       false_pos_edge_ratio=cfg.data.false_pos_edge_ratio)
 
     # count run time from here
     time_start = time.time()
+
+    pyg.seed.seed_everything(cfg.seed)
 
     if cfg.model.layer_type == 'GCNConv':
         conv_layer = GCNConv
@@ -69,6 +81,7 @@ def main(cfg: DictConfig):
         'dataset': cfg.data.dataset,
         'split_ratio': cfg.data.split_ratio,
         'use_edge_for_predict': cfg.model.use_edge_for_predict,
+        'layer_type': cfg.model.layer_type,
         'seed': cfg.seed,
         'val_loss': round(val_loss, 4),
         'accuracy': round(accuracy, 4),
