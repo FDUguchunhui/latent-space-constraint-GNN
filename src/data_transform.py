@@ -156,45 +156,77 @@ class TransformY(BaseTransform):
         return data
 
 def get_data(root='.', dataset_name:str = None,
-             mask_ratio=0.5,
+             split_ratio=0.5,
              num_val=0.1, num_test=0.2,
              neg_sample_ratio=1.0,
-             false_pos_edge_ratio=1.0,
+             false_pos_edge_ratio=0.1,
              ):
     '''
     This function returns the dataset object with the specified transformation.
     :param root: the root directory to store the dataset
     :param dataset_name: the name of the dataset
-    :param mask_ratio: the ratio of the adjacency matrix to be masked
+    :param split_ratio: the ratio of the adjacency matrix to be masked
     :param num_val: the ratio of the validation set
     :param num_test: the ratio of the test set
     :param neg_sample_ratio: the ratio of the negative samples
     :param featureless: whether to remove the node features
     :param false_pos_edge_ratio: whether to add false positive edges, None means not to add
     '''
-    mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=mask_ratio)
-    output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test, split_ratio=mask_ratio)
 
-    pre_transform_functions = [T.NormalizeFeatures(), ToUndirected(), mask_adjacency_matrix, output_random_node_split]
-
-    if false_pos_edge_ratio is not None and false_pos_edge_ratio > 0:
-        pre_transform_functions.append(AddFalsePositiveEdge(ratio=mask_ratio, false_pos_ratio=false_pos_edge_ratio))
-
+    pre_transform_functions = [T.NormalizeFeatures(), ToUndirected()]
     if dataset_name == 'PPI':
-            transform_y = TransformY()
-            pre_transform_functions.append(transform_y)
+        transform_y = TransformY()
+        pre_transform_functions.append(transform_y)
 
     # defne a function that will iterate the input over the list of pre_transforms
     pre_transforms = T.Compose(pre_transform_functions)
 
+    mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=split_ratio)
+    output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test, split_ratio=split_ratio)
+
+    transform_functions = []
+
+    transform_functions.append(mask_adjacency_matrix)
+
+    if false_pos_edge_ratio is not None and false_pos_edge_ratio > 0:
+        transform_functions.append(AddFalsePositiveEdge(ratio=split_ratio, false_pos_ratio=false_pos_edge_ratio))
+
+    transform_functions.append(output_random_node_split)
+    transforms = T.Compose(transform_functions)
+
     if dataset_name == 'RandomGraph':
-        dataset = RandomGraph(num_nodes=2000, p=0.1, root=root, pre_transform=pre_transforms)
+        dataset = RandomGraph(num_nodes=2000, p=0.1, root=root, pre_transform=pre_transforms,
+                              transform=transforms)
     if dataset_name == 'Cora':
-        dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transforms)
+        dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transforms,
+                            transform=transforms)
     if dataset_name == 'CiteSeer':
-        dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transforms)
+        dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transforms,
+                            transform=transforms)
     if dataset_name == 'PubMed':
-        dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transforms)
+        dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transforms,
+                            transform=transforms)
+    #todo: PPI dataset need to be double check, cannot add false-positive edges
+    # if dataset_name == 'PPI':
+    #     dataset = PPI(root=root, pre_transform=pre_transforms,
+    #                   transform=transforms)
+        # dataset = AttributedGraphDataset(root=root, name='PPI',
+        #                                  pre_transform=pre_transforms,
+        #               transform=transforms)
+    if dataset_name == 'facebook':
+        dataset = AttributedGraphDataset(root=root, name='facebook',
+                                         pre_transform=pre_transforms,
+                      transform=transforms)
+    if dataset_name == 'Yelp':
+        dataset = CoraFull(root=root, pre_transform=pre_transforms,
+                      transform=transforms)
+    if dataset_name == 'amazon_computer':
+        dataset = Amazon(root=root, name='computers', pre_transform=pre_transforms,
+                      transform=transforms)
+
+    if dataset_name == 'amazon_photo':
+        dataset = Amazon(root=root, name='photo', pre_transform=pre_transforms,
+                      transform=transforms)
 
     if dataset is None:
         raise ValueError('Dataset not found')
