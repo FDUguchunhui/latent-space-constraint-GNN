@@ -70,7 +70,6 @@ def main(cfg: DictConfig):
         model_path=osp.join('checkpoints', str(cfg.seed), 'cgvae_net.pth'),
         regularization=cfg.train.regularization,
         split_ratio=cfg.data.split_ratio,
-        neg_sample_ratio=cfg.data.neg_sample_ratio
     )
 
     end_time = time.time()

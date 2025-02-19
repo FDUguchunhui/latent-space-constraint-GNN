@@ -198,7 +198,7 @@ def get_data(root='.', dataset_name:str = None,
     :param false_pos_edge_ratio: whether to add false positive edges, None means not to add
     '''
 
-    pre_transform_functions = [T.NormalizeFeatures(), ToUndirected()]
+    pre_transform_functions = [T.NormalizeFeatures()]
     if dataset_name == 'PPI':
         transform_y = TransformY()
         pre_transform_functions.append(transform_y)
@@ -217,6 +217,7 @@ def get_data(root='.', dataset_name:str = None,
         transform_functions.append(AddFalsePositiveEdge(ratio=false_pos_edge_ratio))
 
     transform_functions.append(output_random_node_split)
+    transform_functions.append(ToUndirected())
     transforms = T.Compose(transform_functions)
 
     if dataset_name == 'RandomGraph':
