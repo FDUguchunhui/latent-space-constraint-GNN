@@ -14,17 +14,6 @@ from omegaconf import DictConfig
 from src.utils import GraphData
 
 
-def flatten_dict(d, parent_key='', sep='.'):
-    """Recursively flattens a nested dictionary into a single-level dict with dot-separated keys."""
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        else:
-            items.append((new_key, v))
-    return dict(items)
-
 @hydra.main(config_path="./config/homogeneous", config_name="config", version_base='1.3')
 def main(cfg: DictConfig):
     # create logger
@@ -33,12 +22,12 @@ def main(cfg: DictConfig):
     pyg.seed.seed_everything(cfg.seed)
 
     # hydra multirun with
-    cfg.data.false_pos_edge_ratio = round(cfg.data.false_pos_edge_ratio, 2)
+    cfg.data.perturb_rate = round(cfg.data.perturb_rate, 2)
 
     data_generator = GraphData(root='data', save_dir='cache')
     data = data_generator.load_graph(name=cfg.data.dataset,
-                              split_ratio=cfg.data.split_ratio,
-                              perturbation_rate=cfg.data.false_pos_edge_ratio)
+                                     target_ratio=cfg.data.target_ratio,
+                                     perturbation_rate=cfg.data.perturb_rate)
 
 
     # count run time from here
@@ -69,7 +58,7 @@ def main(cfg: DictConfig):
         num_epochs=cfg.train.num_epochs,
         model_path=osp.join('checkpoints', str(cfg.seed), 'cgvae_net.pth'),
         regularization=cfg.train.regularization,
-        split_ratio=cfg.data.split_ratio,
+        target_ratio=cfg.data.target_ratio,
     )
 
     end_time = time.time()
@@ -81,7 +70,7 @@ def main(cfg: DictConfig):
     # Create a dictionary with the data you want to save
     result_data = {
         'dataset': cfg.data.dataset,
-        'split_ratio': cfg.data.split_ratio,
+        'target_ratio': cfg.data.target_ratio,
         'use_edge_for_predict': cfg.model.use_edge_for_predict,
         'layer_type': cfg.model.layer_type,
         'seed': cfg.seed,
@@ -90,7 +79,7 @@ def main(cfg: DictConfig):
         'learning_rate': cfg.train.learning_rate,
         'regularization': cfg.train.regularization,
         'neg_sample_ratio': round(cfg.data.neg_sample_ratio, 2),
-        'false_pos_edge_ratio': round(cfg.data.false_pos_edge_ratio, 2),
+        'perturb_rate': round(cfg.data.perturb_rate, 2),
         'num_epochs': cfg.train.num_epochs,
         'execution_time': round(execution_time, 2),
         'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),

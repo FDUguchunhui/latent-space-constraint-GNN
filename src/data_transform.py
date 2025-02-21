@@ -4,16 +4,17 @@ Email: fduguchunhui@gmail.com
 Created: 2/10/24
 """
 import copy
+import os
 from typing import Any
 
+import scipy.sparse as sp
 import torch_geometric as pyg
 import torch_geometric.seed
 from overrides import overrides
 from torch import Tensor
 from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.data import Data
-from torch_geometric.datasets import KarateClub, AttributedGraphDataset, Yelp, AmazonProducts, Flickr, CoraFull, Amazon
-from torch_geometric.datasets import Planetoid, PPI
+from torch_geometric.datasets import  AttributedGraphDataset, Yelp, Planetoid, Reddit2
 from torch_geometric.datasets import GNNBenchmarkDataset
 from torch_geometric.datasets import MNISTSuperpixels
 from torch_geometric.transforms import BaseTransform, ToUndirected, AddSelfLoops, RandomLinkSplit, RemoveDuplicatedEdges
@@ -63,38 +64,46 @@ import torch
 from torch_geometric.transforms import BaseTransform
 from torch_geometric.data import Data
 
-class AddFalsePositiveEdge(BaseTransform):
+class RandomEdgePerturbation(BaseTransform):
     def __init__(self, ratio=0.1):
         super().__init__()
         self.ratio = ratio
 
-
     def forward(self, data: Data) -> Data:
-
         if not hasattr(data, 'target_node_mask'):
             raise ValueError("target_node_mask is not found in data. Ensure MaskAdjacencyMatrix is applied first.")
 
-
-    # Get the indices of the nodes with target_node_mask
+        # Get the indices of the nodes with target_node_mask
         target_node_indices = torch.where(data.target_node_mask)[0]
         num_target_nodes = len(target_node_indices)
+        num_total_nodes = data.x.size(0)
 
         # Convert edge_index to a set of tuples for faster lookup
         existing_edges = set(map(tuple, data.edge_index.t().tolist()))
 
-        # Generate false positive edges
-        num_false_pos_edges = int(data.edge_index.size(1) * self.ratio)
-        false_pos_edges = []
-        while len(false_pos_edges) < num_false_pos_edges:
+        # Generate false positive and negative edges
+        num_edges = len(existing_edges)
+        num_perturb_edges = int(num_edges * self.ratio)
+        new_edges = []
+        neg_edges = []
+
+        while len(new_edges) + len(neg_edges) < num_perturb_edges:
             i = torch.randint(0, num_target_nodes, (1,)).item()
             j = torch.randint(0, num_target_nodes, (1,)).item()
             edge = (target_node_indices[i].item(), target_node_indices[j].item())
-            if i != j and edge not in existing_edges and (edge[1], edge[0]) not in existing_edges:
-                false_pos_edges.append(edge)
+            if edge not in existing_edges and (edge[1], edge[0]) not in existing_edges:
+                new_edges.append(edge)
+            if edge in existing_edges or (edge[1], edge[0]) in existing_edges:
+                neg_edges.append(edge)
 
-        false_pos_edge_index = torch.tensor(false_pos_edges, dtype=torch.long).t().contiguous()
+        # remove edges in neg_edges from the existing edges
+        for edge in neg_edges:
+            existing_edges.remove(edge)
 
-        data.edge_index = torch.cat([data.edge_index, false_pos_edge_index], dim=1)
+        # Add the new edges to the existing edges
+        existing_edges.update(new_edges)
+        data.edge_index = torch.tensor(list(existing_edges)).t().contiguous()
+
         return data
 
 class RemoveNodeFeature(BaseTransform):
@@ -181,21 +190,21 @@ class TransformY(BaseTransform):
         return data
 
 def get_data(root='.', dataset_name:str = None,
-             split_ratio=0.5,
+             target_ratio=0.5,
              num_val=0.1, num_test=0.2,
              neg_sample_ratio=1.0,
-             false_pos_edge_ratio=0.1,
+             perturb_rate=0.1,
              ):
     '''
     This function returns the dataset object with the specified transformation.
     :param root: the root directory to store the dataset
     :param dataset_name: the name of the dataset
-    :param split_ratio: the ratio of the adjacency matrix to be masked
+    :param target_ratio: the ratio of the adjacency matrix to be masked
     :param num_val: the ratio of the validation set
     :param num_test: the ratio of the test set
     :param neg_sample_ratio: the ratio of the negative samples
     :param featureless: whether to remove the node features
-    :param false_pos_edge_ratio: whether to add false positive edges, None means not to add
+    :param perturb_rate: whether to add false positive edges, None means not to add
     '''
 
     pre_transform_functions = [T.NormalizeFeatures()]
@@ -206,15 +215,15 @@ def get_data(root='.', dataset_name:str = None,
     # defne a function that will iterate the input over the list of pre_transforms
     pre_transforms = T.Compose(pre_transform_functions)
 
-    mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=split_ratio)
+    mask_adjacency_matrix = MaskAdjacencyMatrix(ratio=target_ratio)
     output_random_node_split = OutputRandomNodesSplit(num_val=num_val, num_test=num_test)
 
     transform_functions = []
 
     transform_functions.append(mask_adjacency_matrix)
 
-    if false_pos_edge_ratio is not None and false_pos_edge_ratio > 0:
-        transform_functions.append(AddFalsePositiveEdge(ratio=false_pos_edge_ratio))
+    if perturb_rate is not None and perturb_rate > 0:
+        transform_functions.append(RandomEdgePerturbation(ratio=perturb_rate))
 
     transform_functions.append(output_random_node_split)
     transform_functions.append(ToUndirected())
@@ -233,25 +242,16 @@ def get_data(root='.', dataset_name:str = None,
         dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transforms,
                             transform=transforms)
     #todo: PPI dataset need to be double check, cannot add false-positive edges
-    # if dataset_name == 'PPI':
-    #     dataset = PPI(root=root, pre_transform=pre_transforms,
-    #                   transform=transforms)
-        # dataset = AttributedGraphDataset(root=root, name='PPI',
-        #                                  pre_transform=pre_transforms,
-        #               transform=transforms)
+    if dataset_name == 'PPI':
+        dataset = AttributedGraphDataset(root=os.path.join(root, 'PPI'), name='PPI',
+                                         pre_transform=pre_transforms,
+                      transform=transforms)
+    if dataset_name == 'Reddit':
+        dataset = Reddit2(root=os.path.join(root, 'Reddit'), pre_transform=pre_transforms,
+                      transform=transforms)
     if dataset_name == 'facebook':
         dataset = AttributedGraphDataset(root=root, name='facebook',
                                          pre_transform=pre_transforms,
-                      transform=transforms)
-    if dataset_name == 'Yelp':
-        dataset = CoraFull(root=root, pre_transform=pre_transforms,
-                      transform=transforms)
-    if dataset_name == 'amazon_computer':
-        dataset = Amazon(root=root, name='computers', pre_transform=pre_transforms,
-                      transform=transforms)
-
-    if dataset_name == 'amazon_photo':
-        dataset = Amazon(root=root, name='photo', pre_transform=pre_transforms,
                       transform=transforms)
 
     if dataset is None:

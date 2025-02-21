@@ -22,7 +22,7 @@ import torch.nn.functional as F
 
 
 class CGVAE(torch.nn.Module):
-    def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int, split_ratio=0.5):
+    def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int, target_ratio=0.5):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -34,9 +34,9 @@ class CGVAE(torch.nn.Module):
         self.generation_net = classifer
         self.recon_net = recon_encoder
         self.predicted_y_edge = None
-        # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
+        # target_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
-        self.split_ratio = split_ratio
+        self.target_ratio = target_ratio
 
     def forward(self, data):
 
@@ -91,13 +91,13 @@ def train(device,
           learning_rate=10e-3,
           num_epochs=100,
           regularization=1.0,
-          split_ratio=0.5, neg_sample_ratio=1):
+          target_ratio=0.5, neg_sample_ratio=1):
 
     cgvae_net = CGVAE(reg_encoder=reg_encoder,
                       classifer=classifer,
                         recon_encoder=recon_encoder,
                       latent_size=out_channels,
-                      split_ratio=split_ratio)
+                      target_ratio=target_ratio)
     cgvae_net.to(device)
     # only optimize the parameters of the CGVAE
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())

@@ -84,7 +84,7 @@ class CGVAE(torch.nn.Module):
         self.generation_net = Decoder()
         self.regularization_net = reg_encoder(in_channels, hidden_size, latent_size)
         self.predicted_y_edge = None
-        # split_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
+        # target_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
         self.split_ratio = split_ratio
 

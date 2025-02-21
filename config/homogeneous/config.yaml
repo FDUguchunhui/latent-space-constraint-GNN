@@ -9,8 +9,8 @@ hydra:
 
 data:
   dataset: Cora
-  split_ratio: 0.5
-  false_pos_edge_ratio: 0
+  target_ratio: 0.5
+  perturb_rate: 0
   neg_sample_ratio: 1.0
   batch_size: 1
 
