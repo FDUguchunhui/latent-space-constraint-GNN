@@ -15,6 +15,7 @@ data:
   batch_size: 1
 
 model:
+  model_type: lsc
   out_channels: 32
   layer_type: GATConv
   use_edge_for_predict: full

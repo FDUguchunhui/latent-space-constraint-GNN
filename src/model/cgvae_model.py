@@ -19,10 +19,13 @@ from tqdm import tqdm
 
 import torch.nn.functional as F
 
+from torch_geometric.utils import to_dense_adj, dense_to_sparse
+
+from src.GCNJaccard.GCNJaccard import Jaccard
 
 
 class CGVAE(torch.nn.Module):
-    def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int, target_ratio=0.5):
+    def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int):
         super().__init__()
         # The CGVAE is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -36,7 +39,6 @@ class CGVAE(torch.nn.Module):
         self.predicted_y_edge = None
         # target_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
-        self.target_ratio = target_ratio
 
     def forward(self, data):
 
@@ -58,11 +60,6 @@ class CGVAE(torch.nn.Module):
 
         return kl
 
-    def recon_loss(self, z: Tensor, labels) -> Tensor:
-        logits = self.generation_net(z)
-        loss = F.cross_entropy(logits, labels)
-        return loss
-
     def save(self, model_path):
         torch.save({'prior': self.reg_net.state_dict(),
                     'generation': self.generation_net.state_dict(),
@@ -81,23 +78,44 @@ class CGVAE(torch.nn.Module):
         self.generation_net.eval()
         self.recon_net.eval()
 
+def recon_loss(self, z: Tensor, labels) -> Tensor:
+    logits = self.generation_net(z)
+    loss = F.cross_entropy(logits, labels)
+    return loss
+
 def train(device,
           data,
           model_path,
           classifer,
           reg_encoder,
           recon_encoder,
+          model_type,
           out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
           regularization=1.0,
           target_ratio=0.5, neg_sample_ratio=1):
 
-    cgvae_net = CGVAE(reg_encoder=reg_encoder,
-                      classifer=classifer,
-                        recon_encoder=recon_encoder,
-                      latent_size=out_channels,
-                      target_ratio=target_ratio)
+    if model_type == 'lsc':
+        cgvae_net = CGVAE(reg_encoder=reg_encoder,
+                          classifer=classifer,
+                          recon_encoder=recon_encoder,
+                          latent_size=out_channels)
+    elif model_type == 'jaccard':
+        # when use target it should set use_edge_for_predict='full'
+        cgvae_net = Jaccard(hidden_channels=64, out_channels=32)
+        all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
+        adj = to_dense_adj(all_edges).squeeze()
+        similarity = torch.mm(data.x, data.x.t())
+        adj = adj.to(similarity.device)  # Ensure adj is on the same device as similarity
+        # Create a mask for the target nodes
+        adj[(similarity < 0.01)] = 0
+
+        data.edge_index = dense_to_sparse(adj)[0]
+    else:
+        raise ValueError('Invalid model type')
+
+
     cgvae_net.to(device)
     # only optimize the parameters of the CGVAE
     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
@@ -118,17 +136,32 @@ def train(device,
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
-                        z, reg_z = cgvae_net(data)
-                        loss = cgvae_net.recon_loss(z[data.train_mask], data.y[data.train_mask])
-                        loss = loss + regularization * cgvae_net.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
+                        zs = cgvae_net(data)
+                        if isinstance(zs, tuple):
+                            z, reg_z = zs
+                        else:
+                            z = zs
+                            reg_z = None  # or some default value
+
+                        logits = classifer(z)
+                        loss = F.cross_entropy(logits[data.train_mask], data.y[data.train_mask])
+                        if reg_z is not None:
+                            loss = loss + regularization * cgvae_net.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
 
                         loss.backward()
                         optimizer.step()
                         train_loss = loss.item()  # Store train loss
 
                     else:
-                        z, _ = cgvae_net(data)
-                        loss = cgvae_net.recon_loss(z[data.val_mask], data.y[data.val_mask])
+                        zs = cgvae_net(data)
+                        if isinstance(zs, tuple):
+                            z, reg_z = zs
+                        else:
+                            z = zs
+                            reg_z = None
+
+                        logits = classifer(z)
+                        loss = F.cross_entropy(logits[data.val_mask], data.y[data.val_mask])
                         val_loss = loss.item()  # Store val loss
 
                 bar.set_postfix(phase=phase, loss='{:.4f}'.format(loss))
@@ -141,13 +174,18 @@ def train(device,
 
     return cgvae_net,  val_loss  #todo: return tuple may not be good should try logger later
 
-def test( model: CGVAE, data, device='cpu'):
+def test( model: CGVAE, data, classifer, device='cpu'):
     model.to(device)
     model.eval()
     with torch.no_grad():
         data = data.to(device)
-        z, _ = model(data)
-        predicted_logits = model.generation_net(z)
+        zs = model(data)
+        if isinstance(zs, tuple):
+            z, reg_z = zs
+        else:
+            z = zs
+            reg_z = None
+        predicted_logits = classifer(z)
         # multi-class accuracy
         _, predicted_labels = torch.max(predicted_logits, 1)
         true_labels = data.y[data.test_mask]

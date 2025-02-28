@@ -39,8 +39,10 @@ def main(cfg: DictConfig):
         conv_layer = GCNConv
     elif cfg.model.layer_type == 'SAGEConv':
         conv_layer = SAGEConv
-    else:
+    elif cfg.model.layer_type == 'GATConv':
         conv_layer = GATConv
+    else:
+        raise ValueError('Invalid layer type')
 
     reg_encoder = RegEncoder(conv_layer=conv_layer, hidden_size=cfg.model.out_channels * 2, latent_size=cfg.model.out_channels)
     recon_encoder = ReconEncoder(conv_layer=conv_layer, use_edge_for_predict=cfg.model.use_edge_for_predict, hidden_size=cfg.model.out_channels * 2, latent_size=cfg.model.out_channels)
@@ -50,6 +52,7 @@ def main(cfg: DictConfig):
     cgvae_net, val_loss = model.cgvae_train(
         device= 'cuda' if torch.cuda.is_available() else 'cpu',
         data=data,
+        model_type=cfg.model.model_type,
         classifer=classifier,
         reg_encoder=reg_encoder,
         recon_encoder=recon_encoder,
@@ -64,7 +67,7 @@ def main(cfg: DictConfig):
     end_time = time.time()
     execution_time = end_time - time_start
 
-    accuracy = model.cgvae_model.test(cgvae_net, data)
+    accuracy = model.cgvae_model.test(cgvae_net, data, classifier)
     print(f'seed: {cfg.seed}, accuracy: {accuracy}')
 
     # Create a dictionary with the data you want to save
@@ -72,6 +75,7 @@ def main(cfg: DictConfig):
         'dataset': cfg.data.dataset,
         'target_ratio': cfg.data.target_ratio,
         'use_edge_for_predict': cfg.model.use_edge_for_predict,
+        'model_type': cfg.model.model_type,
         'layer_type': cfg.model.layer_type,
         'seed': cfg.seed,
         'val_loss': round(val_loss, 4),
