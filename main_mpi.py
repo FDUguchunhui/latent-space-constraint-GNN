@@ -5,7 +5,7 @@ import torch
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from pytorch_lightning.loggers import MLFlowLogger
 from omegaconf import DictConfig, OmegaConf
-import  src.model.cgvae_model_hetero as hetero_cgvae
+import  src.model.LSCGNN_hetero as hetero_cgvae
 import pytorch_lightning as pl
 from src.data.hetero_data_module import HeteroDataModule
 

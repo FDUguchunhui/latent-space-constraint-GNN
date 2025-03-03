@@ -66,9 +66,9 @@ class HeteroCGVAELightning(pl.LightningModule):
                  latent_size: int, full_graph_metadata, reg_graph_metadata, neg_sample_ratio,
                  target_node_type, regularization, target_edge_type, learning_rate):
         super().__init__()
-        # The CGVAE is composed of multiple GNN, such as recognition network
+        # The LSCGNN is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
-        # network pθ(y|x, z). Also, CGVAE is built on top of the baselineNet: not only
+        # network pθ(y|x, z). Also, LSCGNN is built on top of the baselineNet: not only
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.save_hyperparameters(ignore=['full_graph_metadata', 'reg_graph_metadata'])
@@ -201,7 +201,7 @@ class HeteroCGVAELightning(pl.LightningModule):
 #
 #     cgvae_net = HeteroCGVAE(in_channels=num_node_features, hidden_size=2 * out_channels,
 #                       latent_size=out_channels, data=data, target_node_type=target_node_type, target_edge_type=target_edge_type)
-#     # only optimize the parameters of the CGVAE
+#     # only optimize the parameters of the LSCGNN
 #     optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters('recognition_net'))
 #     best_loss = np.inf
 #     early_stop_count = 0
@@ -221,7 +221,7 @@ class HeteroCGVAELightning(pl.LightningModule):
 #             else:
 #                 cgvae_net.eval()
 #
-#             with tqdm(total=1, desc=f'CGVAE Epoch {epoch}') as bar:
+#             with tqdm(total=1, desc=f'LSCGNN Epoch {epoch}') as bar:
 #                 optimizer.zero_grad()
 #                 with torch.set_grad_enabled(phase == 'train'):
 #                     if phase == 'train':

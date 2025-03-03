@@ -1,16 +1,19 @@
+import argparse
 import os
 import time
 import json
 import torch
 import torch_geometric as pyg
+from torch_geometric.utils import to_dense_adj
 from torch_geometric.nn import GCNConv, SAGEConv, GATConv
 import os.path as osp
 import logging
-from src import model, data_transform
 from src.encoder import ReconEncoder, RegEncoder, MLPClassifier
 import hydra
 from omegaconf import DictConfig
+from deeprobust.graph.defense import GCN, ProGNN
 
+from src.model import LSC
 from src.utils import GraphData
 
 
@@ -28,7 +31,7 @@ def main(cfg: DictConfig):
     data = data_generator.load_graph(name=cfg.data.dataset,
                                      target_ratio=cfg.data.target_ratio,
                                      perturbation_rate=cfg.data.perturb_rate)
-
+    data = data.to('cuda' if torch.cuda.is_available() else 'cpu')
 
     # count run time from here
     time_start = time.time()
@@ -49,25 +52,61 @@ def main(cfg: DictConfig):
     num_classes = data.y.max().item() + 1
     classifier = MLPClassifier(input_dim=cfg.model.out_channels, hidden_dim=cfg.model.out_channels * 2, output_dim=num_classes)
 
-    cgvae_net, val_loss = model.cgvae_train(
-        device= 'cuda' if torch.cuda.is_available() else 'cpu',
-        data=data,
-        model_type=cfg.model.model_type,
-        classifer=classifier,
-        reg_encoder=reg_encoder,
-        recon_encoder=recon_encoder,
-        out_channels=cfg.model.out_channels,
-        learning_rate=cfg.train.learning_rate,
-        num_epochs=cfg.train.num_epochs,
-        model_path=osp.join('checkpoints', str(cfg.seed), 'cgvae_net.pth'),
-        regularization=cfg.train.regularization,
-        target_ratio=cfg.data.target_ratio,
-    )
-
     end_time = time.time()
+
+    if cfg.model.model_type == 'ProGNN':
+        args = argparse.Namespace(
+            debug=True,
+            only_gcn=False,
+            lr=0.01,
+            weight_decay=5e-4,
+            hidden=32,
+            ptb_rate=0.05,
+            epochs=400,
+            alpha=5e-4,
+            beta=1.5,
+            gamma=1,
+            lambda_=0,
+            phi=0,
+            inner_steps=2,
+            outer_steps=1,
+            lr_adj=0.01,
+            symmetric=False
+        )
+        model = GCN(nfeat=data.x.size(1),
+                    nhid=cfg.model.out_channels,
+                    nclass=data.y.max().item() + 1,
+                    dropout=False, device='cuda' if torch.cuda.is_available() else 'cpu')
+
+        prognn = ProGNN(model, args, device='cuda' if torch.cuda.is_available() else 'cpu')
+        data.edge_index = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
+        # get idx from mask where mask is True
+        idx_train = data.train_mask.nonzero().view(-1)
+        idx_val= data.test_mask.nonzero().view(-1)
+        idx_test = data.test_mask.nonzero().view(-1)
+        adj = to_dense_adj(data.edge_index)[0]
+        prognn.fit(data.x, adj, data.y, idx_train, idx_val)
+        prognn.test(data.x, data.y, idx_test)
+
+    else:
+        cgvae_net, val_loss = LSC.train(
+            device= 'cuda' if torch.cuda.is_available() else 'cpu',
+            data=data,
+            model_type=cfg.model.model_type,
+            classifer=classifier,
+            reg_encoder=reg_encoder,
+            recon_encoder=recon_encoder,
+            out_channels=cfg.model.out_channels,
+            learning_rate=cfg.train.learning_rate,
+            num_epochs=cfg.train.num_epochs,
+            model_path=osp.join('checkpoints', str(cfg.seed), 'cgvae_net.pth'),
+            regularization=cfg.train.regularization
+        )
+    accuracy = LSC.test(cgvae_net, data, classifier)
+
     execution_time = end_time - time_start
 
-    accuracy = model.cgvae_model.test(cgvae_net, data, classifier)
+
     print(f'seed: {cfg.seed}, accuracy: {accuracy}')
 
     # Create a dictionary with the data you want to save

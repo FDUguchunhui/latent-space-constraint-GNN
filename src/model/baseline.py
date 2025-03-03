@@ -40,7 +40,7 @@ class BaselineNet(pyg.nn.GAE):
             return x
 
     '''
-    The purpose of this class is to provide a baseline model for the CGVAE.
+    The purpose of this class is to provide a baseline model for the LSCGNN.
     '''
     def __init__(self, num_node_features,out_channels, **kwargs):
         #todo: for baseline maybe try some other architectures than GCN since
@@ -124,7 +124,7 @@ def train(device, data, num_node_features, model_path, learning_rate=10e-3,
           num_epochs=100, early_stop_patience=10, out_channels=16,
           neg_sample_ratio=1, split_ratio=0.5):
     '''
-    The purpose of this function is to train the baseline model for the CGVAE.
+    The purpose of this function is to train the baseline model for the LSCGNN.
     '''
     # Train baseline
     baseline_net = BaselineNet(num_node_features=num_node_features,

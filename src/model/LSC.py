@@ -3,33 +3,22 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/11/24
 """
-import copy
-import logging
-from typing import Optional
 
-import numpy as np
 from pathlib import Path
 import torch
-import torch_geometric as pyg
-from sklearn.metrics import roc_auc_score, precision_recall_curve, average_precision_score
 from torch import Tensor
-from torch_geometric.nn import InnerProductDecoder
-from torch_geometric.utils import negative_sampling
 from tqdm import tqdm
-
+from torch_geometric.utils import dense_to_sparse, to_dense_adj
 import torch.nn.functional as F
-
-from torch_geometric.utils import to_dense_adj, dense_to_sparse
-
-from src.GCNJaccard.GCNJaccard import Jaccard
+from src.gcn_proprocess import GCN_2layer, dropedge_jaccard, truncatedSVD
 
 
-class CGVAE(torch.nn.Module):
+class LSCGNN(torch.nn.Module):
     def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int):
         super().__init__()
-        # The CGVAE is composed of multiple GNN, such as recognition network
+        # The LSCGNN is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
-        # network pθ(y|x, z). Also, CGVAE is built on top of the baselineNet: not only
+        # network pθ(y|x, z). Also, LSCGNN is built on top of the baselineNet: not only
         # the direct input x, but also the initial guess y_hat made by the baselineNet
         # are fed into the prior network.
         self.latent_size = latent_size
@@ -93,32 +82,33 @@ def train(device,
           out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
-          regularization=1.0,
-          target_ratio=0.5, neg_sample_ratio=1):
+          regularization=1.0):
 
-    if model_type == 'lsc':
-        cgvae_net = CGVAE(reg_encoder=reg_encoder,
-                          classifer=classifer,
-                          recon_encoder=recon_encoder,
-                          latent_size=out_channels)
-    elif model_type == 'jaccard':
+    if model_type == 'LSCGNN':
+        model = LSCGNN(reg_encoder=reg_encoder,
+                       classifer=classifer,
+                       recon_encoder=recon_encoder,
+                       latent_size=out_channels)
+    elif model_type == 'GCNJaccard':
         # when use target it should set use_edge_for_predict='full'
-        cgvae_net = Jaccard(hidden_channels=64, out_channels=32)
+        model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
-        adj = to_dense_adj(all_edges).squeeze()
-        similarity = torch.mm(data.x, data.x.t())
-        adj = adj.to(similarity.device)  # Ensure adj is on the same device as similarity
-        # Create a mask for the target nodes
-        adj[(similarity < 0.01)] = 0
-
-        data.edge_index = dense_to_sparse(adj)[0]
+        data.edge_index = dropedge_jaccard(all_edges, data.x, threshold=0.01)
+    elif model_type == 'GCNSVD':
+        model = GCN_2layer(hidden_channels=64, out_channels=32)
+        all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
+        # to adjacency matrix
+        all_edges  = to_dense_adj(all_edges)[0]
+        all_edges  = truncatedSVD(all_edges, k=10)
+        # to edge_index
+        data.edge_index = dense_to_sparse(torch.tensor(all_edges, device=device))[0]
     else:
         raise ValueError('Invalid model type')
 
 
-    cgvae_net.to(device)
-    # only optimize the parameters of the CGVAE
-    optimizer = torch.optim.Adam(lr=learning_rate, params=cgvae_net.parameters())
+    model.to(device)
+    # only optimize the parameters of the LSCGNN
+    optimizer = torch.optim.Adam(lr=learning_rate, params=model.parameters())
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     data = data.to(device)
@@ -128,15 +118,15 @@ def train(device,
 
         for phase in ['train', 'val']:
             if phase == 'train':
-                cgvae_net.train()
+                model.train()
             else:
-                cgvae_net.eval()
+                model.eval()
 
             with tqdm(total=1, desc=f'CGVAE Epoch {epoch}') as bar:
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
-                        zs = cgvae_net(data)
+                        zs = model(data)
                         if isinstance(zs, tuple):
                             z, reg_z = zs
                         else:
@@ -146,14 +136,14 @@ def train(device,
                         logits = classifer(z)
                         loss = F.cross_entropy(logits[data.train_mask], data.y[data.train_mask])
                         if reg_z is not None:
-                            loss = loss + regularization * cgvae_net.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
+                            loss = loss + regularization * model.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
 
                         loss.backward()
                         optimizer.step()
                         train_loss = loss.item()  # Store train loss
 
                     else:
-                        zs = cgvae_net(data)
+                        zs = model(data)
                         if isinstance(zs, tuple):
                             z, reg_z = zs
                         else:
@@ -166,15 +156,15 @@ def train(device,
 
                 bar.set_postfix(phase=phase, loss='{:.4f}'.format(loss))
 
-    cgvae_net.eval()
+    model.eval()
 
     # save the final model
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(cgvae_net.state_dict(), model_path)
+    torch.save(model.state_dict(), model_path)
 
-    return cgvae_net,  val_loss  #todo: return tuple may not be good should try logger later
+    return model,  val_loss  #todo: return tuple may not be good should try logger later
 
-def test( model: CGVAE, data, classifer, device='cpu'):
+def test(model: LSCGNN, data, classifer, device='cpu'):
     model.to(device)
     model.eval()
     with torch.no_grad():
