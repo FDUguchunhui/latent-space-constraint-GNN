@@ -14,7 +14,7 @@ from omegaconf import DictConfig
 from deeprobust.graph.defense import GCN, ProGNN
 
 from src.model import LSC
-from src.utils import GraphData
+from src.data.utils import GraphData
 
 
 @hydra.main(config_path="./config/homogeneous", config_name="config", version_base='1.3')
@@ -30,7 +30,8 @@ def main(cfg: DictConfig):
     data_generator = GraphData(root='data', save_dir='cache')
     data = data_generator.load_graph(name=cfg.data.dataset,
                                      target_ratio=cfg.data.target_ratio,
-                                     perturbation_rate=cfg.data.perturb_rate)
+                                     perturb_rate=cfg.data.perturb_rate,
+                                     perturb_type=cfg.data.perturb_type)
     data = data.to('cuda' if torch.cuda.is_available() else 'cpu')
 
     # count run time from here
@@ -122,6 +123,7 @@ def main(cfg: DictConfig):
         'learning_rate': cfg.train.learning_rate,
         'regularization': cfg.train.regularization,
         'neg_sample_ratio': round(cfg.data.neg_sample_ratio, 2),
+        'perturb_type': cfg.data.perturb_type,
         'perturb_rate': round(cfg.data.perturb_rate, 2),
         'num_epochs': cfg.train.num_epochs,
         'execution_time': round(execution_time, 2),
