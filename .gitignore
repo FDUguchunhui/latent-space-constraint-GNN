@@ -77,7 +77,7 @@ fabric.properties
 .idea/caches/build_file_checksums.ser
 .idea
 
-data/
+/data/
 checkpoints/
 checkpoint/
 lightning_logs/

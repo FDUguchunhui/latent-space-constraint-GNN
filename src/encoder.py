@@ -11,7 +11,7 @@ class ReconEncoder(torch.nn.Module):
         self.use_edge_for_predict = use_edge_for_predict
         self.conv1 = conv_layer(-1, hidden_size)
         self.lin1 = Linear(-1, hidden_size)
-        self.conv_mu = conv_layer(-1, latent_size)
+        self.conv2 = conv_layer(-1, latent_size)
 
     def forward(self, data):
         if self.use_edge_for_predict == 'target':
@@ -22,7 +22,7 @@ class ReconEncoder(torch.nn.Module):
             edge_index = torch.cat((data.edge_index, data.reg_edge_index), dim=1)
         # combined_edge_index = masked_x.edge_index
         z = (self.conv1(data.x, edge_index) + self.lin1(data.x)).relu()
-        z = self.conv_mu(z, edge_index)
+        z = self.conv2(z, edge_index)
         return z
 
 
