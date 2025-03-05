@@ -11,6 +11,7 @@ import logging
 from src.encoder import ReconEncoder, RegEncoder, MLPClassifier
 import hydra
 from omegaconf import DictConfig
+
 from deeprobust.graph.defense import GCN, ProGNN
 
 from src.model import LSC
@@ -53,8 +54,6 @@ def main(cfg: DictConfig):
     num_classes = data.y.max().item() + 1
     classifier = MLPClassifier(input_dim=cfg.model.out_channels, hidden_dim=cfg.model.out_channels * 2, output_dim=num_classes)
 
-    end_time = time.time()
-
     if cfg.model.model_type == 'ProGNN':
         args = argparse.Namespace(
             debug=True,
@@ -87,7 +86,8 @@ def main(cfg: DictConfig):
         idx_test = data.test_mask.nonzero().view(-1)
         adj = to_dense_adj(data.edge_index)[0]
         prognn.fit(data.x, adj, data.y, idx_train, idx_val)
-        prognn.test(data.x, data.y, idx_test)
+        val_loss = prognn.best_val_loss.cpu().item()
+        accuracy = prognn.test(data.x, data.y, idx_test)
 
     else:
         cgvae_net, val_loss = LSC.train(
@@ -103,9 +103,9 @@ def main(cfg: DictConfig):
             model_path=osp.join('checkpoints', str(cfg.seed), 'cgvae_net.pth'),
             regularization=cfg.train.regularization
         )
-    accuracy = LSC.test(cgvae_net, data, classifier)
+        accuracy = LSC.test(cgvae_net, data, classifier)
 
-    execution_time = end_time - time_start
+    execution_time =  time.time() - time_start
 
 
     print(f'seed: {cfg.seed}, accuracy: {accuracy}')
@@ -126,7 +126,7 @@ def main(cfg: DictConfig):
         'perturb_type': cfg.data.perturb_type,
         'perturb_rate': round(cfg.data.perturb_rate, 2),
         'num_epochs': cfg.train.num_epochs,
-        'execution_time': round(execution_time, 2),
+        'execution_time': round(execution_time, 4),
         'time_stamp': time.strftime('%Y-%m-%d %H:%M:%S'),
     }
 
