@@ -23,7 +23,7 @@ class GraphData:
             return data
         else:
             os.makedirs(self.save_dir, exist_ok=True)
-            data = get_data(self.root, dataset_name=name, target_ratio=target_ratio, perturb_rate=perturb_rate, perb_type=perturb_type)
+            data = get_data(self.root, dataset_name=name, target_ratio=target_ratio, perturb_rate=perturb_rate, perburb_type=perturb_type)
             with open(file_path, 'wb') as f:
                 pickle.dump(data, f)
             return data

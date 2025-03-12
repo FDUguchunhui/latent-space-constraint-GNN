@@ -3,6 +3,7 @@ Author: Chunhui Gu
 Email: fduguchunhui@gmail.com
 Created: 2/11/24
 """
+import logging
 
 from pathlib import Path
 import torch
@@ -70,12 +71,11 @@ def train(device,
                    recon_encoder=recon_encoder,
                    task_head=task_head,
                    latent_size=out_channels)
-    if model_type == 'LSCGNN':
+    if model_type == 'LSCGNN'   :
         pass
-    elif model_type == 'GCNJaccard':
-        # model = GCN_2layer(hidden_channels=64, out_channels=32)
-        all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
-        adj = to_dense_adj(all_edges)[0]
+    elif model_type == 'Jaccard':
+        # all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
+        adj = to_dense_adj(data.edge_index, max_num_nodes=data.x.size(0))[0]
         adj = drop_dissimilar_edges(data.x, adj, threshold=0.01)
         data.edge_index = dense_to_sparse(torch.tensor(adj.toarray()))[0]
     else:

@@ -56,13 +56,18 @@ def main(cfg: DictConfig):
     num_classes = data.y.max().item() + 1
     classifier = MLPClassifier(input_dim=cfg.model.out_channels, hidden_dim=cfg.model.out_channels * 2, output_dim=num_classes)
 
-    if cfg.model.model_type == 'ProGNN' or cfg.model.model_type == 'GCNSVD':
+    # if cfg.model.model_type in ['GCNJaccard']:
+    #     logging.warning('GCNJaccard is a preprocessing so regularization edges are already added back to target\n'
+    #                     'use_edge_for_predict is set to target')
+    #     cfg.model.use_edge_for_predict = 'target'
+
+    if cfg.model.model_type in ['ProGNN', 'GCNSVD']:
         data.edge_index = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
         # get idx from mask where mask is True
-        idx_train = data.train_mask.nonzero().view(-1)
-        idx_val= data.test_mask.nonzero().view(-1)
-        idx_test = data.test_mask.nonzero().view(-1)
-        adj = to_dense_adj(data.edge_index)[0]
+        idx_train = data.train_mask.nonzero().view(-1).to(device)
+        idx_val= data.test_mask.nonzero().view(-1).to(device)
+        idx_test = data.test_mask.nonzero().view(-1).to(device)
+        adj = to_dense_adj(data.edge_index)[0].to(device)
 
     if cfg.model.model_type == 'ProGNN':
         # put data on the right device here since LSC implementation did it

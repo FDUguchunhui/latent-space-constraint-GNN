@@ -234,7 +234,7 @@ def get_data(root='.', dataset_name:str = None,
              target_ratio=0.5,
              num_val=0.1, num_test=0.2,
              perturb_rate=0.1,
-             perb_type='Random',
+             perburb_type='Random',
              ):
     '''
     This function returns the dataset object with the specified transformation.
@@ -266,10 +266,12 @@ def get_data(root='.', dataset_name:str = None,
     transform_functions.append(output_random_node_split)
 
     if perturb_rate is not None and perturb_rate > 0:
-        if perb_type == 'Metattack':
+        if perburb_type == 'Mettack':
             transform_functions.append(Mettack(ratio=perturb_rate))
-        else:
+        elif perburb_type == 'Random':
             transform_functions.append(RandomEdgePerturbation(ratio=perturb_rate))
+        else:
+            raise ValueError('Invalid perturbation type')
 
     transform_functions.append(ToUndirected())
     transforms = T.Compose(transform_functions)
