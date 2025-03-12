@@ -78,12 +78,6 @@ def train(device,
         adj = to_dense_adj(all_edges)[0]
         adj = drop_dissimilar_edges(data.x, adj, threshold=0.01)
         data.edge_index = dense_to_sparse(torch.tensor(adj.toarray()))[0]
-    elif model_type == 'GCNSVD':
-        # model = GCN_2layer(hidden_channels=64, out_channels=32)
-        all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
-        all_edges = to_dense_adj(all_edges)[0]
-        all_edges = truncatedSVD(all_edges, k=50)
-        data.edge_index = dense_to_sparse(torch.tensor(all_edges))[0]
     else:
         raise ValueError('Invalid model type')
 

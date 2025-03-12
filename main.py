@@ -2,6 +2,8 @@ import argparse
 import os
 import time
 import json
+
+import numpy as np
 import torch
 import torch_geometric as pyg
 from torch_geometric.utils import to_dense_adj
@@ -12,7 +14,7 @@ from src.encoder import ReconEncoder, RegEncoder, MLPClassifier
 import hydra
 from omegaconf import DictConfig
 
-from deeprobust.graph.defense import GCN, ProGNN
+from deeprobust.graph.defense import GCN, ProGNN, GCNSVD
 
 from src.model import LSC
 from src.data.utils import GraphData
@@ -22,7 +24,7 @@ from src.data.utils import GraphData
 def main(cfg: DictConfig):
     # create logger
     logging.basicConfig(level=logging.INFO)
-
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     pyg.seed.seed_everything(cfg.seed)
 
     # hydra multirun with
@@ -54,9 +56,17 @@ def main(cfg: DictConfig):
     num_classes = data.y.max().item() + 1
     classifier = MLPClassifier(input_dim=cfg.model.out_channels, hidden_dim=cfg.model.out_channels * 2, output_dim=num_classes)
 
+    if cfg.model.model_type == 'ProGNN' or cfg.model.model_type == 'GCNSVD':
+        data.edge_index = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
+        # get idx from mask where mask is True
+        idx_train = data.train_mask.nonzero().view(-1)
+        idx_val= data.test_mask.nonzero().view(-1)
+        idx_test = data.test_mask.nonzero().view(-1)
+        adj = to_dense_adj(data.edge_index)[0]
+
     if cfg.model.model_type == 'ProGNN':
         # put data on the right device here since LSC implementation did it
-        data = data.to('cuda' if torch.cuda.is_available() else 'cpu')
+        data = data.to(device)
         args = argparse.Namespace(
             debug=cfg.verbose,
             only_gcn=False,
@@ -78,22 +88,27 @@ def main(cfg: DictConfig):
         model = GCN(nfeat=data.x.size(1),
                     nhid=cfg.model.out_channels,
                     nclass=data.y.max().item() + 1,
-                    dropout=False, device='cuda' if torch.cuda.is_available() else 'cpu')
+                    dropout=False, device=device)
 
-        prognn = ProGNN(model, args, device='cuda' if torch.cuda.is_available() else 'cpu')
-        data.edge_index = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
-        # get idx from mask where mask is True
-        idx_train = data.train_mask.nonzero().view(-1)
-        idx_val= data.test_mask.nonzero().view(-1)
-        idx_test = data.test_mask.nonzero().view(-1)
-        adj = to_dense_adj(data.edge_index)[0]
+        prognn = ProGNN(model, args, device=device)
         prognn.fit(data.x, adj, data.y, idx_train, idx_val)
         val_loss = prognn.best_val_loss.cpu().item()
         accuracy = prognn.test(data.x, data.y, idx_test)
 
+    elif cfg.model.model_type == 'GCNSVD':
+        model = GCNSVD(nfeat=data.x.size(1),
+                       nhid=cfg.model.out_channels,
+                       nclass=data.y.max().item() + 1,
+                       dropout=False, device=device)
+        model = model.to(device)
+        print('=== testing GCN-SVD on perturbed graph ===')
+        model.fit(data.x, adj, data.y, idx_train, idx_val, k=50, verbose=cfg.verbose)
+        val_loss = 0
+        accuracy = model.test(idx_test)
+
     else:
         cgvae_net, val_loss = LSC.train(
-            device= 'cuda' if torch.cuda.is_available() else 'cpu',
+            device= device,
             data=data,
             model_type=cfg.model.model_type,
             task_head=classifier,
@@ -106,7 +121,7 @@ def main(cfg: DictConfig):
             regularization=cfg.train.regularization,
             verbose=cfg.verbose  # Add verbose parameter
         )
-        accuracy = LSC.test(cgvae_net, data, device= 'cuda' if torch.cuda.is_available() else 'cpu')
+        accuracy = LSC.test(cgvae_net, data, device= device)
 
     execution_time =  time.time() - time_start
 
