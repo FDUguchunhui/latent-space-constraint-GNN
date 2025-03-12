@@ -123,7 +123,6 @@ class Mettack(BaseTransform):
         surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=16,
                         dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device='cuda' if torch.cuda.is_available() else 'cpu')
 
-        surrogate = surrogate.to('cpu')
         surrogate.fit(features, adj, labels, idx_train)
 
         # Setup Attack Model
@@ -141,8 +140,6 @@ class Mettack(BaseTransform):
         else:
             model = Metattack(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
                               attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_)
-
-        model = model.to(self.device)
 
         model.attack(features, adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=False)
         modified_adj = model.modified_adj

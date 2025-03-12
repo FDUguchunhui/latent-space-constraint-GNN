@@ -61,31 +61,27 @@ def train(device,
           out_channels=16,
           learning_rate=10e-3,
           num_epochs=100,
-          regularization=1.0):
+          regularization=1.0,
+          verbose=True):  # Add verbose parameter
 
     if model_type == 'LSCGNN':
         model = LSCGNN(reg_encoder=reg_encoder,
                        recon_encoder=recon_encoder,
                        latent_size=out_channels)
     elif model_type == 'GCNJaccard':
-        # when use target it should set use_edge_for_predict='full'
         model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
         data.edge_index = dropedge_jaccard(all_edges, data.x, threshold=0.01)
     elif model_type == 'GCNSVD':
         model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
-        # to adjacency matrix
-        all_edges  = to_dense_adj(all_edges)[0]
-        all_edges  = truncatedSVD(all_edges, k=50)
-        # to edge_index
+        all_edges = to_dense_adj(all_edges)[0]
+        all_edges = truncatedSVD(all_edges, k=50)
         data.edge_index = dense_to_sparse(torch.tensor(all_edges, device=device))[0]
     else:
         raise ValueError('Invalid model type')
 
-
     model.to(device)
-    # only optimize the parameters of the LSCGNN
     optimizer = torch.optim.Adam(lr=learning_rate, params=model.parameters())
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -93,7 +89,7 @@ def train(device,
     classifier.to(device)
 
     for epoch in range(num_epochs):
-        train_loss, val_loss = None, None  # Initialize variables
+        train_loss, val_loss = None, None
 
         for phase in ['train', 'val']:
             if phase == 'train':
@@ -101,7 +97,7 @@ def train(device,
             else:
                 model.eval()
 
-            with tqdm(total=1, desc=f'CGVAE Epoch {epoch}') as bar:
+            with tqdm(total=1, desc=f'CGVAE Epoch {epoch}', disable=not verbose) as bar:  # Use verbose parameter
                 optimizer.zero_grad()
                 with torch.set_grad_enabled(phase == 'train'):
                     if phase == 'train':
@@ -110,7 +106,7 @@ def train(device,
                             z, reg_z = zs
                         else:
                             z = zs
-                            reg_z = None  # or some default value
+                            reg_z = None
 
                         logits = classifier(z)
                         loss = F.cross_entropy(logits[data.train_mask], data.y[data.train_mask])
@@ -119,7 +115,7 @@ def train(device,
 
                         loss.backward()
                         optimizer.step()
-                        train_loss = loss.item()  # Store train loss
+                        train_loss = loss.item()
 
                     else:
                         zs = model(data)
@@ -131,18 +127,15 @@ def train(device,
 
                         logits = classifier(z)
                         loss = F.cross_entropy(logits[data.val_mask], data.y[data.val_mask])
-                        val_loss = loss.item()  # Store val loss
+                        val_loss = loss.item()
 
                 bar.set_postfix(phase=phase, loss='{:.4f}'.format(loss))
 
     model.eval()
-
-    # save the final model
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), model_path)
 
-    return model,  val_loss  #todo: return tuple may not be good should try logger later
-
+    return model, val_loss
 def test(model: LSCGNN, data, classifier, device='cpu'):
     model.to(device)
     model.eval()

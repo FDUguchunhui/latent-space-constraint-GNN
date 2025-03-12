@@ -56,7 +56,7 @@ def main(cfg: DictConfig):
 
     if cfg.model.model_type == 'ProGNN':
         args = argparse.Namespace(
-            debug=False,
+            debug=cfg.verbose,
             only_gcn=False,
             lr=0.01,
             weight_decay=5e-4,
@@ -101,7 +101,8 @@ def main(cfg: DictConfig):
             learning_rate=cfg.train.learning_rate,
             num_epochs=cfg.train.num_epochs,
             model_path=osp.join('checkpoints', str(cfg.seed), 'cgvae_net.pth'),
-            regularization=cfg.train.regularization
+            regularization=cfg.train.regularization,
+            verbose=cfg.verbose  # Add verbose parameter
         )
         accuracy = LSC.test(cgvae_net, data, classifier)
 
