@@ -33,7 +33,7 @@ def main(cfg: DictConfig):
                                      target_ratio=cfg.data.target_ratio,
                                      perturb_rate=cfg.data.perturb_rate,
                                      perturb_type=cfg.data.perturb_type)
-    data = data.to('cuda' if torch.cuda.is_available() else 'cpu')
+
 
     # count run time from here
     time_start = time.time()
@@ -55,6 +55,8 @@ def main(cfg: DictConfig):
     classifier = MLPClassifier(input_dim=cfg.model.out_channels, hidden_dim=cfg.model.out_channels * 2, output_dim=num_classes)
 
     if cfg.model.model_type == 'ProGNN':
+        # put data on the right device here since LSC implementation did it
+        data = data.to('cuda' if torch.cuda.is_available() else 'cpu')
         args = argparse.Namespace(
             debug=cfg.verbose,
             only_gcn=False,

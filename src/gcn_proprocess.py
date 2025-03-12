@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
+from numba import njit
 
 # pyg implementation of GCNJaccard
 class GCN_2layer(torch.nn.Module):
@@ -24,24 +25,41 @@ class GCN_2layer(torch.nn.Module):
 import torch
 from torch_geometric.utils import to_dense_adj, dense_to_sparse
 
-def dropedge_jaccard(edge_index, features, threshold):
-    # Convert edge_index to dense adjacency matrix
-    adj = to_dense_adj(edge_index).squeeze(0)
+def drop_dissimilar_edges(features, adj, threshold=0.01):
+    """Drop dissimilar edges.(Faster version using numba)
+    """
+    if not sp.issparse(adj):
+        adj = sp.csr_matrix(adj)
 
-    # Compute similarity matrix using GCN_2layer similarity
-    intersection = torch.mm(features, features.t())
-    union = features.sum(dim=1).unsqueeze(1) + features.sum(dim=1).unsqueeze(0) - intersection
-    similarity = intersection / union
+    adj_triu = sp.triu(adj, format='csr')
 
-    # Drop edges based on similarity threshold
-    adj[similarity < threshold] = 0
+    if sp.issparse(features):
+        features = features.todense().A # make it easier for njit processing
 
-    # Convert back to edge_index
-    edge_index = dense_to_sparse(adj)[0]
 
-    return edge_index
+    removed_cnt = dropedge_cosine(adj_triu.data, adj_triu.indptr, adj_triu.indices, features, threshold=threshold)
+    print('removed %s edges in the original graph' % removed_cnt)
+    modified_adj = adj_triu + adj_triu.transpose()
+    return modified_adj
 
-import torch
+def dropedge_cosine(A, iA, jA, features, threshold):
+    removed_cnt = 0
+    for row in range(len(iA)-1):
+        for i in range(iA[row], iA[row+1]):
+            # print(row, jA[i], A[i])
+            n1 = row
+            n2 = jA[i]
+            a, b = features[n1], features[n2]
+            inner_product = (a * b).sum()
+            C = inner_product / (np.sqrt(np.square(a).sum()) * np.sqrt(np.square(b).sum()) + 1e-8)
+
+            if C < threshold:
+                A[i] = 0
+                # A[n2, n1] = 0
+                removed_cnt += 1
+    return removed_cnt
+
+
 
 def truncatedSVD(data, k=50):
     """Truncated SVD on input data.

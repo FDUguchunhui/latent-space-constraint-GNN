@@ -10,7 +10,7 @@ from torch import Tensor
 from tqdm import tqdm
 from torch_geometric.utils import dense_to_sparse, to_dense_adj
 import torch.nn.functional as F
-from src.gcn_proprocess import GCN_2layer, dropedge_jaccard, truncatedSVD
+from src.gcn_proprocess import truncatedSVD, drop_dissimilar_edges
 
 
 class LSCGNN(torch.nn.Module):
@@ -65,21 +65,25 @@ def train(device,
           regularization=1.0,
           verbose=True):  # Add verbose parameter
 
-    # if model_type == 'LSCGNN':
+
     model = LSCGNN(reg_encoder=reg_encoder,
                    recon_encoder=recon_encoder,
                    task_head=task_head,
                    latent_size=out_channels)
-    if model_type == 'GCNJaccard':
+    if model_type == 'LSCGNN':
+        pass
+    elif model_type == 'GCNJaccard':
         # model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
-        data.edge_index = dropedge_jaccard(all_edges, data.x, threshold=0.01)
+        adj = to_dense_adj(all_edges)[0]
+        adj = drop_dissimilar_edges(data.x, adj, threshold=0.01)
+        data.edge_index = dense_to_sparse(torch.tensor(adj.toarray()))[0]
     elif model_type == 'GCNSVD':
         # model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
         all_edges = to_dense_adj(all_edges)[0]
         all_edges = truncatedSVD(all_edges, k=50)
-        data.edge_index = dense_to_sparse(torch.tensor(all_edges, device=device))[0]
+        data.edge_index = dense_to_sparse(torch.tensor(all_edges))[0]
     else:
         raise ValueError('Invalid model type')
 
