@@ -14,7 +14,7 @@ from src.gcn_proprocess import GCN_2layer, dropedge_jaccard, truncatedSVD
 
 
 class LSCGNN(torch.nn.Module):
-    def __init__(self, reg_encoder, recon_encoder, latent_size: int):
+    def __init__(self, reg_encoder, recon_encoder, task_head, latent_size: int):
         super().__init__()
         # The LSCGNN is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -24,6 +24,7 @@ class LSCGNN(torch.nn.Module):
         self.latent_size = latent_size
         self.reg_net = reg_encoder
         self.recon_net = recon_encoder
+        self.task_head =  task_head
         self.predicted_y_edge = None
         # target_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
         # and standardize KL loss for the size of the output
@@ -54,9 +55,9 @@ def reg_loss(target_latent, reg_latent) -> Tensor:
 def train(device,
           data,
           model_path,
-          classifier,
           reg_encoder,
           recon_encoder,
+          task_head,
           model_type,
           out_channels=16,
           learning_rate=10e-3,
@@ -64,16 +65,17 @@ def train(device,
           regularization=1.0,
           verbose=True):  # Add verbose parameter
 
-    if model_type == 'LSCGNN':
-        model = LSCGNN(reg_encoder=reg_encoder,
-                       recon_encoder=recon_encoder,
-                       latent_size=out_channels)
-    elif model_type == 'GCNJaccard':
-        model = GCN_2layer(hidden_channels=64, out_channels=32)
+    # if model_type == 'LSCGNN':
+    model = LSCGNN(reg_encoder=reg_encoder,
+                   recon_encoder=recon_encoder,
+                   task_head=task_head,
+                   latent_size=out_channels)
+    if model_type == 'GCNJaccard':
+        # model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
         data.edge_index = dropedge_jaccard(all_edges, data.x, threshold=0.01)
     elif model_type == 'GCNSVD':
-        model = GCN_2layer(hidden_channels=64, out_channels=32)
+        # model = GCN_2layer(hidden_channels=64, out_channels=32)
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
         all_edges = to_dense_adj(all_edges)[0]
         all_edges = truncatedSVD(all_edges, k=50)
@@ -86,7 +88,6 @@ def train(device,
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     data = data.to(device)
-    classifier.to(device)
 
     for epoch in range(num_epochs):
         train_loss, val_loss = None, None
@@ -108,7 +109,7 @@ def train(device,
                             z = zs
                             reg_z = None
 
-                        logits = classifier(z)
+                        logits = model.task_head(z)
                         loss = F.cross_entropy(logits[data.train_mask], data.y[data.train_mask])
                         if reg_z is not None:
                             loss = loss + regularization * reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
@@ -125,7 +126,7 @@ def train(device,
                             z = zs
                             reg_z = None
 
-                        logits = classifier(z)
+                        logits = model.task_head(z)
                         loss = F.cross_entropy(logits[data.val_mask], data.y[data.val_mask])
                         val_loss = loss.item()
 
@@ -136,8 +137,7 @@ def train(device,
     torch.save(model.state_dict(), model_path)
 
     return model, val_loss
-def test(model: LSCGNN, data, classifier, device='cpu'):
-    model.to(device)
+def test(model: LSCGNN, data, device='cpu'):
     model.eval()
     with torch.no_grad():
         data = data.to(device)
@@ -147,7 +147,7 @@ def test(model: LSCGNN, data, classifier, device='cpu'):
         else:
             z = zs
             reg_z = None
-        predicted_logits = classifier(z)
+        predicted_logits = model.task_head(z)
         # multi-class accuracy
         _, predicted_labels = torch.max(predicted_logits, 1)
         true_labels = data.y[data.test_mask]

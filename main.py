@@ -94,7 +94,7 @@ def main(cfg: DictConfig):
             device= 'cuda' if torch.cuda.is_available() else 'cpu',
             data=data,
             model_type=cfg.model.model_type,
-            classifier=classifier,
+            task_head=classifier,
             reg_encoder=reg_encoder,
             recon_encoder=recon_encoder,
             out_channels=cfg.model.out_channels,
@@ -104,7 +104,7 @@ def main(cfg: DictConfig):
             regularization=cfg.train.regularization,
             verbose=cfg.verbose  # Add verbose parameter
         )
-        accuracy = LSC.test(cgvae_net, data, classifier)
+        accuracy = LSC.test(cgvae_net, data, device= 'cuda' if torch.cuda.is_available() else 'cpu')
 
     execution_time =  time.time() - time_start
 
