@@ -56,7 +56,7 @@ def main(cfg: DictConfig):
 
     if cfg.model.model_type == 'ProGNN':
         args = argparse.Namespace(
-            debug=True,
+            debug=False,
             only_gcn=False,
             lr=0.01,
             weight_decay=5e-4,
@@ -94,7 +94,7 @@ def main(cfg: DictConfig):
             device= 'cuda' if torch.cuda.is_available() else 'cpu',
             data=data,
             model_type=cfg.model.model_type,
-            classifer=classifier,
+            classifier=classifier,
             reg_encoder=reg_encoder,
             recon_encoder=recon_encoder,
             out_channels=cfg.model.out_channels,

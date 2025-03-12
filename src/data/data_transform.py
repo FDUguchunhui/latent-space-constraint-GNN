@@ -100,7 +100,7 @@ class RandomEdgePerturbation(BaseTransform):
 
 class Mettack(BaseTransform):
 
-    def __init__(self, ratio=0.1, device='cuda' if torch.cuda.is_available() else 'cpu', model='Train', ):
+    def __init__(self, ratio=0.1, device='cuda' if torch.cuda.is_available() else 'cpu', model='Train'):
         super().__init__()
         self.ratio = ratio
         self.device = device
@@ -121,7 +121,7 @@ class Mettack(BaseTransform):
 
         # Setup Surrogate Model
         surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=16,
-                        dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device='cpu')
+                        dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device='cuda' if torch.cuda.is_available() else 'cpu')
 
         surrogate = surrogate.to('cpu')
         surrogate.fit(features, adj, labels, idx_train)

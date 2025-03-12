@@ -14,7 +14,7 @@ from src.gcn_proprocess import GCN_2layer, dropedge_jaccard, truncatedSVD
 
 
 class LSCGNN(torch.nn.Module):
-    def __init__(self, reg_encoder, recon_encoder, classifer, latent_size: int):
+    def __init__(self, reg_encoder, recon_encoder, latent_size: int):
         super().__init__()
         # The LSCGNN is composed of multiple GNN, such as recognition network
         # qφ(z|x, y), (conditional) prior network pθ(z|x), and generation
@@ -23,7 +23,6 @@ class LSCGNN(torch.nn.Module):
         # are fed into the prior network.
         self.latent_size = latent_size
         self.reg_net = reg_encoder
-        self.generation_net = classifer
         self.recon_net = recon_encoder
         self.predicted_y_edge = None
         # target_ratio is useful for the baselineNet to predict the target part of the adjacency matrix
@@ -36,46 +35,26 @@ class LSCGNN(torch.nn.Module):
         target_latent = self.recon_net(data)
         return target_latent, reg_latent
 
-    def reg_loss(self, target_latent, reg_latent) -> Tensor:
-        kl =  torch.mean(
-            torch.mean(((target_latent - reg_latent)**2)
-                      , dim=1))
 
-        # if variational
-        # kl = -0.5 * torch.mean(
-        #     torch.sum(1 + 2 * (self.posterior_logstd[:split_index])
-        #               - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
-        #               - (posterior_variance[:split_index]), dim=1))
+def reg_loss(target_latent, reg_latent) -> Tensor:
+    kl =  torch.mean(
+        torch.mean(((target_latent - reg_latent)**2)
+                   , dim=1))
 
-        return kl
+    # if variational
+    # kl = -0.5 * torch.mean(
+    #     torch.sum(1 + 2 * (self.posterior_logstd[:split_index])
+    #               - ((self.posterior_mu[:split_index] - self.prior_mu[:split_index])**2)
+    #               - (posterior_variance[:split_index]), dim=1))
 
-    def save(self, model_path):
-        torch.save({'prior': self.reg_net.state_dict(),
-                    'generation': self.generation_net.state_dict(),
-                    'recognition': self.recon_net.state_dict(),
-                    'posterior_mu': self.posterior_mu,
-                    },
-                   model_path)
+    return kl
 
-    def load(self, model_path, map_location=None):
-        net_weights = torch.load(model_path, map_location=map_location)
-        self.reg_net.load_state_dict(net_weights['prior'])
-        self.generation_net.load_state_dict(net_weights['generation'])
-        self.recon_net.load_state_dict(net_weights['recognition'])
-        self.posterior_mu = net_weights['posterior_mu']
-        self.reg_net.eval()
-        self.generation_net.eval()
-        self.recon_net.eval()
 
-def recon_loss(self, z: Tensor, labels) -> Tensor:
-    logits = self.generation_net(z)
-    loss = F.cross_entropy(logits, labels)
-    return loss
 
 def train(device,
           data,
           model_path,
-          classifer,
+          classifier,
           reg_encoder,
           recon_encoder,
           model_type,
@@ -86,7 +65,6 @@ def train(device,
 
     if model_type == 'LSCGNN':
         model = LSCGNN(reg_encoder=reg_encoder,
-                       classifer=classifer,
                        recon_encoder=recon_encoder,
                        latent_size=out_channels)
     elif model_type == 'GCNJaccard':
@@ -99,7 +77,7 @@ def train(device,
         all_edges = torch.cat([data.edge_index, data.reg_edge_index], dim=1)
         # to adjacency matrix
         all_edges  = to_dense_adj(all_edges)[0]
-        all_edges  = truncatedSVD(all_edges, k=10)
+        all_edges  = truncatedSVD(all_edges, k=50)
         # to edge_index
         data.edge_index = dense_to_sparse(torch.tensor(all_edges, device=device))[0]
     else:
@@ -112,6 +90,7 @@ def train(device,
     Path(model_path).parent.mkdir(parents=True, exist_ok=True)
 
     data = data.to(device)
+    classifier.to(device)
 
     for epoch in range(num_epochs):
         train_loss, val_loss = None, None  # Initialize variables
@@ -133,10 +112,10 @@ def train(device,
                             z = zs
                             reg_z = None  # or some default value
 
-                        logits = classifer(z)
+                        logits = classifier(z)
                         loss = F.cross_entropy(logits[data.train_mask], data.y[data.train_mask])
                         if reg_z is not None:
-                            loss = loss + regularization * model.reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
+                            loss = loss + regularization * reg_loss(z[data.target_node_mask], reg_z[data.target_node_mask])
 
                         loss.backward()
                         optimizer.step()
@@ -150,7 +129,7 @@ def train(device,
                             z = zs
                             reg_z = None
 
-                        logits = classifer(z)
+                        logits = classifier(z)
                         loss = F.cross_entropy(logits[data.val_mask], data.y[data.val_mask])
                         val_loss = loss.item()  # Store val loss
 
@@ -164,7 +143,7 @@ def train(device,
 
     return model,  val_loss  #todo: return tuple may not be good should try logger later
 
-def test(model: LSCGNN, data, classifer, device='cpu'):
+def test(model: LSCGNN, data, classifier, device='cpu'):
     model.to(device)
     model.eval()
     with torch.no_grad():
@@ -175,7 +154,7 @@ def test(model: LSCGNN, data, classifer, device='cpu'):
         else:
             z = zs
             reg_z = None
-        predicted_logits = classifer(z)
+        predicted_logits = classifier(z)
         # multi-class accuracy
         _, predicted_labels = torch.max(predicted_logits, 1)
         true_labels = data.y[data.test_mask]
