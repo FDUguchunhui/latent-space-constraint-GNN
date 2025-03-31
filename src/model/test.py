@@ -158,7 +158,7 @@ class CGVAE(torch.nn.Module):
                    model_path)
 
     def load(self, model_path, map_location=None):
-        net_weights = torch.load(model_path, map_location=map_location)
+        net_weights = torch.load(model_path, map_location=map_location, weights_only=True)
         self.recon_net.load_state_dict(net_weights['prior'])
         self.generation_net.load_state_dict(net_weights['generation'])
         self.regularization_net.load_state_dict(net_weights['recognition'])

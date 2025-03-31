@@ -16,14 +16,14 @@ class GraphData:
         """
         Load the graph data from a pickle file.
         """
-        file_path = os.path.join(self.save_dir, f"{name}_{target_ratio}_{perturb_rate}_{perturb_type}.pkl")
+        file_path = os.path.join(self.save_dir, f"{name}_{target_ratio}_{perturb_rate:.2f}_{perturb_type}.pkl")
         if os.path.exists(file_path):
             with open(file_path, 'rb') as f:
                 data = pickle.load(f)
             return data
         else:
             os.makedirs(self.save_dir, exist_ok=True)
-            data = get_data(self.root, dataset_name=name, target_ratio=target_ratio, perturb_rate=perturb_rate, perburb_type=perturb_type)
+            data = get_data(self.root, dataset_name=name, target_ratio=target_ratio, perturb_rate=perturb_rate, perturb_type=perturb_type)
             with open(file_path, 'wb') as f:
                 pickle.dump(data, f)
             return data

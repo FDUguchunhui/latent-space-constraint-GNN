@@ -135,14 +135,16 @@ class Mettack(BaseTransform):
 
         if 'A' in self.model:
             model = MetaApprox(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
-                               attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_)
+                               attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_,
+                               train_iters=100)
 
         else:
             model = Metattack(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
-                              attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_)
+                              attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_,
+                              train_iters=100)
 
         model.attack(features, adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=False)
-        modified_adj = model.modified_adj
+        modified_adj = sp.csr_matrix(model.modified_adj)
         data.edge_index = from_scipy_sparse_matrix(modified_adj)
 
         return data
@@ -234,7 +236,7 @@ def get_data(root='.', dataset_name:str = None,
              target_ratio=0.5,
              num_val=0.1, num_test=0.2,
              perturb_rate=0.1,
-             perburb_type='Random',
+             perturb_type='Random'
              ):
     '''
     This function returns the dataset object with the specified transformation.
@@ -266,9 +268,9 @@ def get_data(root='.', dataset_name:str = None,
     transform_functions.append(output_random_node_split)
 
     if perturb_rate is not None and perturb_rate > 0:
-        if perburb_type == 'Mettack':
+        if perturb_type == 'Mettack':
             transform_functions.append(Mettack(ratio=perturb_rate))
-        elif perburb_type == 'Random':
+        elif perturb_type == 'Random':
             transform_functions.append(RandomEdgePerturbation(ratio=perturb_rate))
         else:
             raise ValueError('Invalid perturbation type')
