@@ -13,3 +13,9 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 ```
 For other platforms check https://pytorch.org/get-started/locally/
 
+
+For linux
+```
+python -c "import torch; print(torch.__version__); print('CUDA available:', torch.cuda.is_available())"
+
+```

@@ -14,9 +14,10 @@ from torch_geometric.datasets import  AttributedGraphDataset, Yelp, Planetoid, R
 from torch_geometric.transforms import BaseTransform, ToUndirected, AddSelfLoops, RandomLinkSplit, RemoveDuplicatedEdges
 import torch_geometric.transforms as T
 from torch_geometric.utils import to_scipy_sparse_matrix, from_scipy_sparse_matrix
+from torch_geometric.utils import to_torch_coo_tensor
 from src.model.random_graph import RandomGraph
 from deeprobust.graph.defense import GCN
-from deeprobust.graph.global_attack import MetaApprox, Metattack
+from src.data.mettack import MetaApprox, Metattack
 from deeprobust.graph.utils import *
 import torch
 from torch_geometric.transforms import BaseTransform
@@ -110,10 +111,12 @@ class Mettack(BaseTransform):
         if not hasattr(data, 'target_node_mask'):
             raise ValueError("target_node_mask is not found in data. Ensure MaskAdjacencyMatrix is applied first.")
 
+        data = data.to(self.device)
+
         # Get the indices of the nodes with target_node_mask
         target_node_indices = torch.where(data.target_node_mask)[0]
 
-        adj, features, labels = to_scipy_sparse_matrix(data.edge_index), data.x, data.y
+        adj, features, labels =  to_scipy_sparse_matrix(data.edge_index), data.x, data.y
         idx_train, idx_val, idx_test = torch.nonzero(data.train_mask).squeeze(), torch.nonzero(data.val_mask).squeeze(), torch.nonzero(data.test_mask).squeeze()
         idx_unlabeled = np.union1d(idx_val, idx_test)
 
@@ -269,7 +272,7 @@ def get_data(root='.', dataset_name:str = None,
 
     if perturb_rate is not None and perturb_rate > 0:
         if perturb_type == 'Mettack':
-            transform_functions.append(Mettack(ratio=perturb_rate))
+            transform_functions.append(Mettack(ratio=perturb_rate, device='cuda' if torch.cuda.is_available() else 'cpu'))
         elif perturb_type == 'Random':
             transform_functions.append(RandomEdgePerturbation(ratio=perturb_rate))
         else:
