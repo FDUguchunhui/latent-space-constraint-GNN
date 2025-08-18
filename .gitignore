@@ -91,3 +91,7 @@ venv/
 figures/
 outputs/
 .venv/
+
+*.pyc
+pyg_graph_with_string_stitch
+*.egg-info

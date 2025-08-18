@@ -6,16 +6,15 @@ The package can be easily installed using pip using dependency restriction in py
 pip install .
 ```
 
-While `pip install .` can take care of most dependency automatically, you may need to install pytorch manually due to complexity of torch depending a lot of factors, such as CPU archtecure, GPU acceleration, and operation system.
-install torch on MacOS
-```azure
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+recommended approach
 ```
-For other platforms check https://pytorch.org/get-started/locally/
-
-
-For linux
+uv sync
 ```
-python -c "import torch; print(torch.__version__); print('CUDA available:', torch.cuda.is_available())"
 
+install pytorch and additional platform-dependent packages.
+Using the appropriate version based on platform and cuda version
 ```
+uv pip install "pytorch==2.8.0"
+uv pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.8.0+cpu.html
+```
+

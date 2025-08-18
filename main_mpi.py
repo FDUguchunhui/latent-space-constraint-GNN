@@ -13,13 +13,12 @@ from src.data.hetero_data_module import HeteroDataModule
 @hydra.main(config_path="config", config_name="config", version_base="1.2")
 def main(cfg: DictConfig):
 
-    pl.seed_everything(36) # fix train/val/test split, negative sampling, and false positive edges
+    pl.seed_everything(35) # fix train/val/test split, negative sampling, and false positive edges
 
     # load test edge
     # try to use protein-interaction from KEGG as test and STRING for training, regularization has better improvement
     with open('data/edge_index_KEGG.pkl', 'rb') as f:
         test_edge_index = pickle.load(f)
-
 
     # try to remove PPI from kegg data
     dm = HeteroDataModule(
