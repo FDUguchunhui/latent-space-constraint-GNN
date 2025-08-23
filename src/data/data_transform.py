@@ -254,7 +254,7 @@ def get_data(root='.', dataset_name:str = None,
     '''
 
     pre_transform_functions = [T.NormalizeFeatures()]
-    if dataset_name == 'PPI':
+    if dataset_name == 'PPI' or dataset_name == 'Facebook':
         transform_y = TransformY()
         pre_transform_functions.append(transform_y)
 
@@ -284,29 +284,28 @@ def get_data(root='.', dataset_name:str = None,
     if dataset_name == 'RandomGraph':
         dataset = RandomGraph(num_nodes=2000, p=0.1, root=root, pre_transform=pre_transforms,
                               transform=transforms)
-    if dataset_name == 'Cora':
+    elif dataset_name == 'Cora':
         dataset = Planetoid(root=root, name='Cora', pre_transform=pre_transforms,
                             transform=transforms)
-    if dataset_name == 'CiteSeer':
+    elif dataset_name == 'CiteSeer':
         dataset = Planetoid(root=root, name='CiteSeer', pre_transform=pre_transforms,
                             transform=transforms)
-    if dataset_name == 'PubMed':
+    elif dataset_name == 'PubMed':
         dataset = Planetoid(root=root, name='PubMed', pre_transform=pre_transforms,
                             transform=transforms)
     #todo: PPI dataset need to be double check, cannot add false-positive edges
-    if dataset_name == 'PPI':
+    elif dataset_name == 'PPI':
         dataset = AttributedGraphDataset(root=os.path.join(root, 'PPI'), name='PPI',
                                          pre_transform=pre_transforms,
-                      transform=transforms)
-    if dataset_name == 'Reddit':
+                     transform=transforms)
+    elif dataset_name == 'Reddit':
         dataset = Reddit2(root=os.path.join(root, 'Reddit'), pre_transform=pre_transforms,
-                      transform=transforms)
-    if dataset_name == 'facebook':
-        dataset = AttributedGraphDataset(root=root, name='facebook',
+                     transform=transforms)
+    elif dataset_name == 'Facebook':
+        dataset = AttributedGraphDataset(root=root, name='Facebook',
                                          pre_transform=pre_transforms,
-                      transform=transforms)
-
-    if dataset is None:
+                     transform=transforms)
+    else:
         raise ValueError('Dataset not found')
 
     # set shuffle to False to keep the order of the dataset otherwise
