@@ -23,11 +23,18 @@ dependencies = [
     "scikit-learn>=1.5.2,<2.0.0",
     "pytorch-lightning>=2.5.0.post0,<3.0.0",
     "hydra-core>=1.3.2,<2.0.0",
-    "mlflow[logging]>=2.20.1,<3.0.0",
-    "notebook>=7.3.2,<8.0.0",
     "tornado>=6.4.2,<7.0.0",
     "deeprobust>=0.2.11,<1.0.0",
     "scipy==1.10.1",
+    "torch==2.8.0",
+    "torch_scatter @ https://data.pyg.org/whl/torch-2.8.0+cpu/torch_scatter-2.1.2-cp311-cp311-macosx_10_9_universal2.whl ; sys_platform == 'darwin' and python_version == '3.11'",
+    "torch_sparse @ https://data.pyg.org/whl/torch-2.8.0+cpu/torch_sparse-0.6.18-cp311-cp311-macosx_11_0_universal2.whl ; sys_platform == 'darwin' and python_version == '3.11'",
+    "torch_cluster @ https://data.pyg.org/whl/torch-2.8.0+cpu/torch_cluster-1.6.3-cp311-cp311-macosx_10_9_universal2.whl ; sys_platform == 'darwin' and python_version == '3.11'",
+    "torch_spline_conv @ https://data.pyg.org/whl/torch-2.8.0+cpu/torch_spline_conv-1.2.2-cp311-cp311-macosx_10_9_universal2.whl ; sys_platform == 'darwin' and python_version == '3.11'",
+    "torch_scatter @ https://data.pyg.org/whl/torch-2.8.0+cu129/torch_scatter-2.1.2+pt28cu129-cp311-cp311-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "torch_sparse @ https://data.pyg.org/whl/torch-2.8.0+cu129/torch_sparse-0.6.18+pt28cu129-cp311-cp311-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "torch_cluster @ https://data.pyg.org/whl/torch-2.8.0+cu129/torch_cluster-1.6.3+pt28cu129-cp311-cp311-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
+    "torch_spline_conv @ https://data.pyg.org/whl/torch-2.8.0+cu129/torch_spline_conv-1.2.2+pt28cu129-cp311-cp311-linux_x86_64.whl ; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version == '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -36,11 +43,28 @@ notebooks = [
     "matplotlib>=3.9.0,<4.0.0",
     "jupyterlab>=4.3.5,<5.0.0",
     "tensorboard>=2.18.0,<3.0.0",
+    "notebook>=7.3.2,<8.0.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.uv.sources]
+torch = [
+  { index = "torch-cpu", marker = "platform_system == 'Darwin'"},
+  { index = "torch-gpu", marker = "platform_system == 'Linux'"},
+]
+
+[[tool.uv.index]]
+name = "torch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "torch-gpu"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true
 
 
 
