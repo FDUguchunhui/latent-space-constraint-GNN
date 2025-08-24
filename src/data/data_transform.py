@@ -117,17 +117,26 @@ class Mettack(BaseTransform):
         # Get the indices of the nodes with target_node_mask
         target_node_indices = torch.where(data.target_node_mask)[0]
 
-        adj, features, labels =  to_scipy_sparse_matrix(data.edge_index, num_nodes=data.x.size(0)), data.x, data.y
-        idx_train, idx_val, idx_test = torch.nonzero(data.train_mask).squeeze(), torch.nonzero(data.val_mask).squeeze(), torch.nonzero(data.test_mask).squeeze()
-        idx_unlabeled = np.union1d(idx_val, idx_test)
+        # For GPU compatibility with deeprobust, we need to handle device conversion carefully
+        # deeprobust's utils.to_tensor only converts adj, features, labels but not indices
+        # We'll ensure all data starts as CPU numpy arrays and let deeprobust handle the conversion consistently
+        
+        adj = to_scipy_sparse_matrix(data.edge_index.cpu(), num_nodes=data.x.size(0))
+        features = data.x.cpu()  # Keep as tensor initially for easier device management
+        labels = data.y.cpu()    # Keep as tensor initially for easier device management  
+        idx_train = torch.nonzero(data.train_mask).squeeze().cpu()
+        idx_val = torch.nonzero(data.val_mask).squeeze().cpu()
+        idx_test = torch.nonzero(data.test_mask).squeeze().cpu()
+        idx_unlabeled = torch.cat([idx_val, idx_test]).unique()
 
         perturbations = int(self.ratio * (adj.sum()))
 
-        # Setup Surrogate Model
+        # Setup Surrogate Model - use the specified device (GPU if available)
         surrogate = GCN(nfeat=features.shape[1], nclass=labels.max().item()+1, nhid=16,
-                        dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device='cuda' if torch.cuda.is_available() else 'cpu')
+                        dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device=self.device).to(self.device)
 
-        surrogate.fit(features, adj, labels, idx_train)
+        # Convert to numpy for surrogate.fit which expects numpy arrays
+        surrogate.fit(features.numpy(), adj, labels.numpy(), idx_train.numpy(), train_iters=10)
 
         # Setup Attack Model
         if 'Self' in self.model:
@@ -140,16 +149,26 @@ class Mettack(BaseTransform):
         if 'A' in self.model:
             model = MetaApprox(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
                                attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_,
-                               train_iters=100)
+                               train_iters=10)
 
         else:
             model = Metattack(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
                               attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_,
-                              train_iters=100)
+                              train_iters=10)
+        
+        # Move model parameters to the correct device
+        model = model.to(self.device)
 
-        model.attack(features, adj, labels, idx_train, idx_unlabeled, perturbations, ll_constraint=False)
-        modified_adj = sp.csr_matrix(model.modified_adj)
-        data.edge_index = from_scipy_sparse_matrix(modified_adj)
+        # Since deeprobust's utils.to_tensor doesn't convert idx_train and idx_unlabeled, 
+        # we need to ensure they're on the correct device from the start
+        # Convert to numpy for features/labels but keep indices as tensors on the target device
+        idx_train_device = idx_train.to(self.device)
+        idx_unlabeled_device = idx_unlabeled.to(self.device)
+        
+        model.attack(features.numpy(), adj, labels.numpy(), idx_train_device, idx_unlabeled_device, perturbations, ll_constraint=False)
+        modified_adj = sp.csr_matrix(model.modified_adj.cpu().numpy())
+        edge_index, _ = from_scipy_sparse_matrix(modified_adj)
+        data.edge_index = edge_index.to(self.device)
 
         return data
     

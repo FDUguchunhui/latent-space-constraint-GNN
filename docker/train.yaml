@@ -3,7 +3,7 @@ kind: Job
 metadata:
   labels:
     k8s-user: cgu3
-  name: cgu3-test
+  name: cgu3-lsc-gnn
   namespace: yn-gpu-workload
 spec:
   backoffLimit: 0
@@ -11,14 +11,15 @@ spec:
     spec:
       containers:
       - command:
-        - python
-        - lsc-gnn/main.py
+        - bash
+        - test_script.sh
         env:
         - name: HOME
           value: /home
-        image: springlight123/finetune:latest
+        image: springlight123/lsc-gnn:latest
         imagePullPolicy: IfNotPresent
         name: main
+        workingDir: /home/lsc-gnn
         resources:
           limits:
             cpu: 12

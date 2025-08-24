@@ -1,30 +1,30 @@
-#python main.py -m data.dataset=Cora,CiteSeer 'seed=range(1, 11, 1)' \
-#data.target_ratio=0.5,0.7,0.9 \
-#'data.perturb_rate=range(0, 0.35, 0.05)' \
-#model.model_type=LSCGNN \
-#'train.regularization=range(0, 11, 1)' model.use_edge_for_predict=full model.layer_type=GATConv \
-#results='results/results_LSC.json'
-#
-#python main.py -m data.dataset=PubMed 'seed=range(1, 11, 1)' \
-#data.target_ratio=0.5,0.7,0.9 \
-#'data.perturb_rate=range(0, 0.35, 0.05)' \
-#model.model_type=LSCGNN \
-#'train.regularization=range(0, 21, 1)' model.use_edge_for_predict=full model.layer_type=GATConv \
-#results='results/results_LSC.json'
+EPOCHS=1
+PERTURB=Random
 
-python main.py -m data.dataset=Cora,CiteSeer,PubMed 'seed=range(1, 11, 1)' \
+# two version of LSCGNN: original LSCGNN and Jaccard+LSCGNN (Jaccard is a preprocessing step)
+python main.py -m data.dataset=Cora,CiteSeer,Facebook,PPI 'seed=range(1, 11, 1)' \
 data.target_ratio=0.5,0.7,0.9 \
-'data.perturb_rate=range(0, 0.35, 0.05)' \
+'data.perturb_rate=range(0, 0.35, 0.1)' data.perturb_type=$PERTURB \
+model.model_type=LSCGNN,Jaccard \
+'train.regularization=range(0, 21, 1)' model.use_edge_for_predict=full model.layer_type=GATConv \
+results="results/temp/results_${PERTURB}_LSC.json" train.num_epochs=$EPOCHS
+
+# use_edge_for_predict: 'full' is used for GAT and GCN baseline comparison, and 'regularization' and 'target' are used for ablation study
+python main.py -m data.dataset=Cora,CiteSeer,Facebook,PPI 'seed=range(1, 11, 1)' \
+data.target_ratio=0.5,0.7,0.9 \
+'data.perturb_rate=range(0, 0.35, 0.1)' data.perturb_type=$PERTURB \
 model.model_type=LSCGNN \
- model.use_edge_for_predict=regularization,target model.layer_type=GATConv, GCNConv \
-results='results/results_baseline.json'
+ model.use_edge_for_predict=full,regularization,target model.layer_type=GATConv,GCNConv \
+results="results/temp/results_${PERTURB}_baseline.json" train.num_epochs=$EPOCHS
 
-python main.py -m data.dataset=Cora,CiteSeer,PubMed 'seed=range(1, 11, 1)' \
+# for robust learning comparison, model.use_edge_for_predict is set automatically to "full" no matter what you set
+# because those model are suppose to be robust to perturbation when provide full edge information
+python main.py -m data.dataset=Cora,CiteSeer,Facebook,PPI 'seed=range(1, 11, 1)' \
 data.target_ratio=0.5,0.7,0.9 \
-'data.perturb_rate=range(0, 0.35, 0.05)' \
-model.model_type=GCNJaccard, GCNSVD, ProGNN \
- model.use_edge_for_predict=regularization,target model.layer_type=GCNConv \
-results='results/results_baseline.json'
+'data.perturb_rate=range(0, 0.35, 0.1)' data.perturb_type=$PERTURB \
+model.model_type=Jaccard,GCNSVD,ProGNN \
+model.layer_type=GCNConv \
+results="results/temp/results_${PERTURB}_baseline.json" train.num_epochs=$EPOCHS
 
 
 #python main.py data.dataset=PubMed \

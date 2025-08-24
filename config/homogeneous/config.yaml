@@ -29,4 +29,4 @@ train:
 model_path: model
 results: results/results.json
 seed: 38
-verbose: false
+verbose: true
