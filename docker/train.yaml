@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    k8s-user: cgu3
+  name: cgu3-test
+  namespace: yn-gpu-workload
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      containers:
+      - command:
+        - python
+        - lsc-gnn/main.py
+        env:
+        - name: HOME
+          value: /home
+        image: springlight123/finetune:latest
+        imagePullPolicy: IfNotPresent
+        name: main
+        resources:
+          limits:
+            cpu: 12
+            memory: 1200Gi
+            nvidia.com/gpu: 1
+          requests:
+            cpu: 12
+            memory: 1200Gi
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - mountPath: /dev/shm
+          name: shm
+        - mountPath: /home
+          name: home
+      nodeSelector:
+        nvidia.com/gpu.present: 'true'
+      restartPolicy: Never
+      securityContext:
+        fsGroup: 600567
+        runAsGroup: 600567
+        runAsUser: 284275
+      volumes:
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 1200Gi
+        name: shm
+      - name: home
+        persistentVolumeClaim:
+          claimName: cgu3-gpu-home
+  ttlSecondsAfterFinished: 60

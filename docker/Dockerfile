@@ -3,11 +3,7 @@ FROM pytorch/pytorch:2.8.0-cuda12.9-cudnn9-devel
 WORKDIR /home
 
 # Install uv
-RUN pip install uv
-
-# Set environment variables early since they rarely change
-ENV PYTHONNOUSERSITE=1
-ENV CUDA_VISIBLE_DEVICES=0
+RUN pip install --no-cache-dir uv
 
 # Copy only dependency files first
 COPY pyproject.toml .
@@ -16,22 +12,27 @@ COPY pyproject.toml .
 RUN uv pip install . --system
 
 # These environment variables are likely to change or be overridden at runtime
-# so putting them later in the Dockerfile
-ENV HF_TOKEN=''
+ENV PYTHONNOUSERSITE=1 PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
 ENV CACHE_DIR=''
-ENV HF_LOCAL_STORAGE=''
 
 # Copy source code last since it changes most frequently
 # This ensures we only rebuild from this point when code changes
-COPY . .
+# COPY . .
 
 # Run main script
-CMD ["python", "main.py"]
+CMD ["python", "main.py", '-m', 'verbose=true']
 
-# docker build --platform linux/amd64 -t springlight123/gnn-lsc .
+# build image
+# docker build -f docker/Dockerfile --platform linux/amd64 -t springlight123/gnn-lsc .
 
-# Run command with token:   
-# docker run --rm --platform linux/amd64 -v $(pwd)/cache:/app/cache springlight123/gnn-lsc .
+# Run command to test locally:   
+# docker run -it --rm --platform linux/amd64 -v $(pwd):/home springlight123/gnn-lsc
+# run interactive mode
+# docker run --rm -it --platform linux/amd64 -v $(pwd):/home springlight123/gnn-lsc /bin/bash
 
-# For development:
-# docker run --rm --platform linux/amd64 -v $(pwd):/app -v $(pwd)/cache:/app/cache springlight123/gnn-lsc
+# upload to docker hub
+# docker push springlight123/gnn-lsc
+
+# when run on k8s, mapping /home in cluster to /home in container, only use container as infrastruture
+# see train.yaml for details
