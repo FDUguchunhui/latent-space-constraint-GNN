@@ -365,7 +365,7 @@ class Metattack(BaseMeta):
                 self.adj_changes.data[row_idx][col_idx] += (-2 * modified_adj[row_idx][col_idx] + 1)
                 if self.undirected:
                     self.adj_changes.data[col_idx][row_idx] += (-2 * modified_adj[row_idx][col_idx] + 1)
-            else:
+            elif self.attack_features:
                 feature_meta_argmax = torch.argmax(feature_meta_score)
                 row_idx, col_idx = utils.unravel_index(feature_meta_argmax, ori_features.shape)
                 self.feature_changes.data[row_idx][col_idx] += (-2 * modified_features[row_idx][col_idx] + 1)

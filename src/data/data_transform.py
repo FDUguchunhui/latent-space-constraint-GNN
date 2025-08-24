@@ -6,6 +6,7 @@ Created: 2/10/24
 import copy
 import os
 from typing import Any
+import numpy as np
 
 import scipy.sparse as sp
 import torch_geometric as pyg
@@ -116,7 +117,7 @@ class Mettack(BaseTransform):
         # Get the indices of the nodes with target_node_mask
         target_node_indices = torch.where(data.target_node_mask)[0]
 
-        adj, features, labels =  to_scipy_sparse_matrix(data.edge_index), data.x, data.y
+        adj, features, labels =  to_scipy_sparse_matrix(data.edge_index, num_nodes=data.x.size(0)), data.x, data.y
         idx_train, idx_val, idx_test = torch.nonzero(data.train_mask).squeeze(), torch.nonzero(data.val_mask).squeeze(), torch.nonzero(data.test_mask).squeeze()
         idx_unlabeled = np.union1d(idx_val, idx_test)
 
@@ -151,6 +152,14 @@ class Mettack(BaseTransform):
         data.edge_index = from_scipy_sparse_matrix(modified_adj)
 
         return data
+    
+class PRBCDAttack(BaseTransform):
+    def __init__(self, ratio=0.1, device='cuda' if torch.cuda.is_available() else 'cpu'):
+        super().__init__()
+        self.ratio = ratio
+        self.device = device
+        
+    
 
 class RemoveNodeFeature(BaseTransform):
     def __init__(self, ratio=0.5):
@@ -272,8 +281,10 @@ def get_data(root='.', dataset_name:str = None,
 
     if perturb_rate is not None and perturb_rate > 0:
         if perturb_type == 'Mettack':
+            print(f'Applying Mettack attack with ratio {perturb_rate}')
             transform_functions.append(Mettack(ratio=perturb_rate, device='cuda' if torch.cuda.is_available() else 'cpu'))
         elif perturb_type == 'Random':
+            print(f'Applying RandomEdgePerturbation attack with ratio {perturb_rate}')
             transform_functions.append(RandomEdgePerturbation(ratio=perturb_rate))
         else:
             raise ValueError('Invalid perturbation type')
