@@ -136,7 +136,7 @@ class Mettack(BaseTransform):
                         dropout=0.5, with_relu=False, with_bias=True, weight_decay=5e-4, device=self.device).to(self.device)
 
         # Convert to numpy for surrogate.fit which expects numpy arrays
-        surrogate.fit(features.numpy(), adj, labels.numpy(), idx_train.numpy(), train_iters=10)
+        surrogate.fit(features.numpy(), adj, labels.numpy(), idx_train.numpy(), train_iters=5)
 
         # Setup Attack Model
         if 'Self' in self.model:
@@ -149,12 +149,12 @@ class Mettack(BaseTransform):
         if 'A' in self.model:
             model = MetaApprox(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
                                attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_,
-                               train_iters=10)
+                               train_iters=5)
 
         else:
             model = Metattack(model=surrogate, nnodes=adj.shape[0], feature_shape=features.shape,
                               attack_structure=True, attack_features=False, device=self.device, lambda_=lambda_,
-                              train_iters=10)
+                              train_iters=5)
         
         # Move model parameters to the correct device
         model = model.to(self.device)
