@@ -1,11 +1,17 @@
 defaults:
-  - override hydra/hydra_logging: disabled
-  - override hydra/job_logging: disabled
+- override hydra/hydra_logging: disabled
+- override hydra/job_logging: disabled
+- override hydra/launcher: joblib
 
 hydra:
   run:
     dir: .
   output_subdir: null
+  launcher:
+    # override the number of jobs for joblib
+    n_jobs: 10
+  sweeper:
+    max_batch_size: 10 # Limits concurrent runs to 4
 
 data:
   dataset: Cora
