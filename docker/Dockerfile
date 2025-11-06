@@ -24,15 +24,15 @@ ENV CACHE_DIR=''
 CMD ["python", "main.py", '-m', 'verbose=true']
 
 # build image
-# docker build -f docker/Dockerfile --platform linux/amd64 -t springlight123/gnn-lsc .
+# docker build -f docker/Dockerfile --platform linux/amd64 -t springlight123/lsc-gnn .
 
 # Run command to test locally:   
-# docker run -it --rm --platform linux/amd64 -v $(pwd):/home springlight123/gnn-lsc
+# docker run -it --rm --platform linux/amd64 -v $(pwd):/home springlight123/lsc-gnn
 # run interactive mode
-# docker run --rm -it --platform linux/amd64 -v $(pwd):/home springlight123/gnn-lsc /bin/bash
+# docker run --rm -it --platform linux/amd64 -v $(pwd):/home springlight123/lsc-gnn /bin/bash
 
 # upload to docker hub
-# docker push springlight123/gnn-lsc
+# docker push springlight123/lsc-gnn
 
 # when run on k8s, mapping /home in cluster to /home in container, only use container as infrastruture
 # see train.yaml for details

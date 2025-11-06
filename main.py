@@ -14,8 +14,8 @@ from src.encoder import ReconEncoder, RegEncoder, MLPClassifier
 import hydra
 from omegaconf import DictConfig
 
-from deeprobust.graph.defense import GCN, ProGNN, GCNSVD
-
+from deeprobust.graph.defense import GCN, GCNSVD
+from src.prognn import ProGNN
 from src.model import LSC
 from src.data.utils import GraphData
 
@@ -79,7 +79,7 @@ def main(cfg: DictConfig):
             weight_decay=5e-4,
             hidden=32,
             ptb_rate=0.05,
-            epochs=400,
+            epochs=200,
             alpha=5e-4,
             beta=1.5,
             gamma=1,
